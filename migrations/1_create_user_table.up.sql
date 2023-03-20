@@ -5,5 +5,5 @@ CREATE TABLE IF NOT EXISTS public.users(
     age INTEGER NOT NULL,
     biography VARCHAR (255) NOT NULL,
     city VARCHAR (50) NOT NULL,
-    password VARCHAR (50) NOT NULL
+    password VARCHAR (255) NOT NULL
 );

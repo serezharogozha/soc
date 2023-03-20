@@ -120,7 +120,6 @@ func (s Server) CreateUser(ctx *fasthttp.RequestCtx) {
 }
 
 func (s Server) Login(ctx *fasthttp.RequestCtx) {
-	fmt.Println("login")
 	userLogin := &domain.Login{}
 
 	err := json.Unmarshal(ctx.PostBody(), userLogin)
@@ -148,8 +147,8 @@ func (s Server) Login(ctx *fasthttp.RequestCtx) {
 		}
 	}
 
-	// Check if the password is correct
-	if userLogin.Password != existedUser.Password {
+	err = service.CheckPassword(userLogin.Password, existedUser.Password)
+	if err != nil {
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return
 	}
