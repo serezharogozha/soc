@@ -1,0 +1,47 @@
+version: '3'
+services:
+  pg:
+    image: postgres:15.2-alpine
+    environment:
+      POSTGRES_USER: soc_user
+      POSTGRES_PASSWORD:
+      POSTGRES_DB: soc
+      SERVICE_NAME: pg
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_INIT_DB_ARGS: "--locale=ru_RU"
+      PAGER: less
+      TERM: xterm
+    expose:
+      - "5432"
+    ports:
+      - "5432:5432"
+    volumes:
+      - data:/var/lib/postgresql
+    networks:
+     - soc
+  app:
+    build:
+      context: .
+      dockerfile: .docker/dockerfile
+    environment:
+      DB_HOST: pg
+      DB_CONNECTION: pgsql
+      DB_USER: soc_user
+      DB_PASSWORD:
+      DB_NAME: soc
+      DB_PORT: 5432
+    volumes:
+      - ./:/app/soc:delegated
+      - ./.docker/entrypoint/soc.sh:/entrypoint.sh:ro
+    entrypoint: /entrypoint.sh
+    ports:
+      - "8080:8080"
+    depends_on:
+      - pg
+    networks:
+      - soc
+volumes:
+  data:
+
+networks:
+  soc:

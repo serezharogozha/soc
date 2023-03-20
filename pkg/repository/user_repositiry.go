@@ -1,0 +1,70 @@
+package repository
+
+import (
+	"awesomeProject10/pkg/domain"
+	"context"
+	"fmt"
+	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v4/pgxpool"
+	"strconv"
+)
+
+type UserRepository struct {
+	db *pgxpool.Pool
+}
+
+func BuildUserRepository(db *pgxpool.Pool) UserRepository {
+	return UserRepository{db: db}
+}
+
+func (u UserRepository) GetUserById(ctx context.Context, userId int) (*domain.User, error) {
+	const query = `SELECT * FROM users WHERE id=$1`
+	user := new(domain.User)
+
+	row := u.db.QueryRow(ctx, query, userId)
+	err := row.Scan(&user.Id, &user.FirstName, &user.SecondName, &user.Birthdate, &user.Biography, &user.City, &user.Password)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	return user, nil
+}
+
+func (u UserRepository) InsertUser(ctx context.Context, user domain.User) (string, error) {
+	err := u.db.QueryRow(ctx, `
+        INSERT INTO users (first_name, second_name, birthdate, biography, city, password)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id
+    `, user.FirstName, user.SecondName, user.Birthdate, user.Biography, user.City, user.Password).Scan(&user.Id)
+
+	if err != nil {
+		fmt.Println(err)
+		return "", err
+	}
+
+	return strconv.Itoa(user.Id), nil
+}
+
+func (u UserRepository) GetUser(ctx context.Context, userId int) (*domain.User, error) {
+	const query = `SELECT * FROM users WHERE id = $1`
+
+	user := new(domain.User)
+
+	row := u.db.QueryRow(ctx, query, userId)
+	err := row.Scan(&user.Id, &user.FirstName, &user.SecondName, &user.Birthdate, &user.Biography, &user.City, &user.Password)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	return user, nil
+}
