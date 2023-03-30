@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY first_last_name_idx ON users (first_name, second_name);
