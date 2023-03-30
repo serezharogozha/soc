@@ -61,6 +61,29 @@
 				}
 			},
 			"response": []
+		},
+		{
+			"name": "find user",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"first_name\": \"Лев\",\n    \"last_name\": \"Абрамов\"\n}"
+				},
+				"url": {
+					"raw": "localhost:8080/user/search",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"user",
+						"search"
+					]
+				}
+			},
+			"response": []
 		}
 	]
 }

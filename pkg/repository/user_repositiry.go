@@ -68,3 +68,30 @@ func (u UserRepository) GetUser(ctx context.Context, userId int) (*domain.User, 
 
 	return user, nil
 }
+
+func (u UserRepository) SearchUser(ctx context.Context, search domain.Search) ([]domain.UserSafe, error) {
+	const query = `SELECT id, first_name, second_name, birthdate, city FROM users WHERE first_name LIKE $1 and second_name LIKE $2 ORDER BY ID DESC`
+
+	rows, _ := u.db.Query(ctx, query, search.FirstName, search.LastName)
+	users := make([]domain.UserSafe, 0)
+
+	for rows.Next() {
+		var userSafe domain.UserSafe
+		err := rows.Scan(&userSafe.Id, &userSafe.FirstName, &userSafe.SecondName, &userSafe.Birthdate, &userSafe.City)
+
+		if err != nil {
+			fmt.Println(err)
+			if err == pgx.ErrNoRows {
+				return nil, nil
+			}
+			return nil, err
+		}
+		users = append(users, userSafe)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return users, nil
+}

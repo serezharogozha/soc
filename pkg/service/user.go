@@ -47,3 +47,7 @@ func (us UserService) CreateUser(ctx context.Context, user domain.User) (string,
 func (us UserService) GetUser(ctx context.Context, userId int) (*domain.User, error) {
 	return us.u.GetUser(ctx, userId)
 }
+
+func (us UserService) SearchUser(ctx context.Context, search domain.Search) ([]domain.UserSafe, error) {
+	return us.u.SearchUser(ctx, search)
+}

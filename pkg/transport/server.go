@@ -39,6 +39,7 @@ func NewServer(db *pgxpool.Pool, service service.UserService) Server {
 	s.router.GET("/user/get/:id", s.GetUser)
 	s.router.POST("/login", s.Login)
 	s.router.POST("/user/register", s.CreateUser)
+	s.router.POST("/user/search", s.UserSearch)
 
 	return s
 }
@@ -67,7 +68,6 @@ func (s Server) GetUser(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.Set("Content-Type", "application/json")
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.Write(userJson)
-
 }
 
 func (s Server) CreateUser(ctx *fasthttp.RequestCtx) {
@@ -117,6 +117,36 @@ func (s Server) CreateUser(ctx *fasthttp.RequestCtx) {
 	ctx.SetContentType("application/json")
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.Write(jsonResponse)
+}
+
+func (s Server) UserSearch(ctx *fasthttp.RequestCtx) {
+	userSearch := &domain.Search{}
+	err := json.Unmarshal(ctx.PostBody(), userSearch)
+	if err != nil {
+		fmt.Println(err)
+		ctx.Error("Bad Request", fasthttp.StatusBadRequest)
+		return
+	}
+
+	users, err := s.userService.SearchUser(ctx, *userSearch)
+	if err != nil {
+		fmt.Println(err)
+		errorResponse := ErrorResponse{
+			Message:   "Failed to fetch user details",
+			RequestID: strconv.FormatUint(ctx.ID(), 10),
+			ErrorCode: fasthttp.StatusInternalServerError,
+		}
+		responseJson, _ := json.Marshal(errorResponse)
+		ctx.Response.Header.Set("Content-Type", "application/json")
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Write(responseJson)
+		return
+	}
+
+	userJson, _ := json.Marshal(users)
+	ctx.Response.Header.Set("Content-Type", "application/json")
+	ctx.SetStatusCode(fasthttp.StatusOK)
+	ctx.Write(userJson)
 }
 
 func (s Server) Login(ctx *fasthttp.RequestCtx) {
