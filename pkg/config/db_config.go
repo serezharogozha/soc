@@ -50,6 +50,68 @@ func buildDBConfig() (DbConf, error) {
 		return DbConf{}, fmt.Errorf("DB_NAME is not set")
 	}
 
+	fmt.Println(DbConf{
+		Host:     dbHost,
+		Port:     dbPort,
+		User:     dbUser,
+		Password: dbPassword,
+		Dbname:   dbName,
+	})
+
+	return DbConf{
+		Host:     dbHost,
+		Port:     dbPort,
+		User:     dbUser,
+		Password: dbPassword,
+		Dbname:   dbName,
+	}, nil
+
+}
+
+func buildDBReplicaConfig() (DbConf, error) {
+	dbHost := os.Getenv("DB_REPLICA_HOST")
+
+	if len(dbHost) == 0 {
+		dbHost = "pg_replica"
+	}
+
+	dbStrPort := os.Getenv("DB_PORT")
+
+	if len(dbStrPort) == 0 {
+		dbStrPort = "5432"
+	}
+
+	dbPort, err := strconv.ParseInt(dbStrPort, 10, 64)
+	if err != nil {
+		return DbConf{}, fmt.Errorf("DB_PORT is not a number")
+	}
+
+	dbUser := os.Getenv("DB_USER")
+
+	if len(dbUser) == 0 {
+		return DbConf{}, fmt.Errorf("DB_USER is not set")
+	}
+
+	dbPassword := os.Getenv("DB_PASSWORD")
+
+	//if len(dbPassword) == 0 {
+	//	return DbConf{}, fmt.Errorf("DB_PASSWORD is not set")
+	//}
+
+	dbName := os.Getenv("DB_NAME")
+
+	if len(dbName) == 0 {
+		return DbConf{}, fmt.Errorf("DB_NAME is not set")
+	}
+
+	fmt.Println(DbConf{
+		Host:     dbHost,
+		Port:     dbPort,
+		User:     dbUser,
+		Password: dbPassword,
+		Dbname:   dbName,
+	})
+
 	return DbConf{
 		Host:     dbHost,
 		Port:     dbPort,

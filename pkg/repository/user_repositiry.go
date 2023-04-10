@@ -10,18 +10,19 @@ import (
 )
 
 type UserRepository struct {
-	db *pgxpool.Pool
+	db    *pgxpool.Pool
+	dbRep *pgxpool.Pool
 }
 
-func BuildUserRepository(db *pgxpool.Pool) UserRepository {
-	return UserRepository{db: db}
+func BuildUserRepository(db *pgxpool.Pool, dbRep *pgxpool.Pool) UserRepository {
+	return UserRepository{db: db, dbRep: dbRep}
 }
 
 func (u UserRepository) GetUserById(ctx context.Context, userId int) (*domain.User, error) {
 	const query = `SELECT * FROM users WHERE id=$1`
 	user := new(domain.User)
 
-	row := u.db.QueryRow(ctx, query, userId)
+	row := u.dbRep.QueryRow(ctx, query, userId)
 	err := row.Scan(&user.Id, &user.FirstName, &user.SecondName, &user.Birthdate, &user.Biography, &user.City, &user.Password)
 
 	if err != nil {
@@ -55,7 +56,7 @@ func (u UserRepository) GetUser(ctx context.Context, userId int) (*domain.User, 
 
 	user := new(domain.User)
 
-	row := u.db.QueryRow(ctx, query, userId)
+	row := u.dbRep.QueryRow(ctx, query, userId)
 	err := row.Scan(&user.Id, &user.FirstName, &user.SecondName, &user.Birthdate, &user.Biography, &user.City, &user.Password)
 
 	if err != nil {
@@ -72,7 +73,7 @@ func (u UserRepository) GetUser(ctx context.Context, userId int) (*domain.User, 
 func (u UserRepository) SearchUser(ctx context.Context, search domain.Search) ([]domain.UserSafe, error) {
 	const query = `SELECT id, first_name, second_name, birthdate, city FROM users WHERE first_name LIKE $1 and second_name LIKE $2 ORDER BY ID DESC`
 
-	rows, _ := u.db.Query(ctx, query, search.FirstName, search.LastName)
+	rows, _ := u.dbRep.Query(ctx, query, search.FirstName, search.LastName)
 	users := make([]domain.UserSafe, 0)
 
 	for rows.Next() {

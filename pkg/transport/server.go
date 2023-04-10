@@ -75,6 +75,7 @@ func (s Server) CreateUser(ctx *fasthttp.RequestCtx) {
 
 	err := json.Unmarshal(ctx.PostBody(), user)
 	if err != nil {
+		fmt.Println(err)
 		ctx.Error("Bad Request", fasthttp.StatusBadRequest)
 		return
 	}
@@ -122,12 +123,14 @@ func (s Server) UserSearch(ctx *fasthttp.RequestCtx) {
 	userSearch := &domain.Search{}
 	err := json.Unmarshal(ctx.PostBody(), userSearch)
 	if err != nil {
+		fmt.Println(err)
 		ctx.Error("Bad Request", fasthttp.StatusBadRequest)
 		return
 	}
 
 	users, err := s.userService.SearchUser(ctx, *userSearch)
 	if err != nil {
+		fmt.Println(err)
 		errorResponse := ErrorResponse{
 			Message:   "Failed to fetch user details",
 			RequestID: strconv.FormatUint(ctx.ID(), 10),
@@ -147,6 +150,7 @@ func (s Server) UserSearch(ctx *fasthttp.RequestCtx) {
 }
 
 func (s Server) Login(ctx *fasthttp.RequestCtx) {
+	fmt.Println("login")
 	userLogin := &domain.Login{}
 
 	err := json.Unmarshal(ctx.PostBody(), userLogin)

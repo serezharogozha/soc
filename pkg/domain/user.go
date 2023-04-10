@@ -12,6 +12,14 @@ type User struct {
 	Password   string `json:"password"`
 }
 
+type UserSafe struct {
+	Id         int    `json:"id"`
+	FirstName  string `json:"first_name"`
+	SecondName string `json:"second_name"`
+	Birthdate  int    `json:"birthdate"`
+	City       string `json:"city"`
+}
+
 type Login struct {
 	Id       int    `json:"id"`
 	Password string `json:"password"`
@@ -19,15 +27,7 @@ type Login struct {
 
 type Search struct {
 	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-}
-
-type UserSafe struct {
-	Id         int    `json:"id"`
-	FirstName  string `json:"first_name"`
-	SecondName string `json:"second_name"`
-	Birthdate  int    `json:"birthdate"`
-	City       string `json:"city"`
+	LastName  string `json:"second_name"`
 }
 
 type UserRepository interface {
