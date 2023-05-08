@@ -37,7 +37,56 @@
 					]
 				}
 			},
-			"response": []
+			"response": [
+				{
+					"name": "login",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"id\": 27919,\n    \"password\": \"12345678\"\n}"
+						},
+						"url": {
+							"raw": "localhost:8080/login",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"login"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Server",
+							"value": "fasthttp"
+						},
+						{
+							"key": "Date",
+							"value": "Wed, 12 Apr 2023 11:26:15 GMT"
+						},
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						},
+						{
+							"key": "Content-Length",
+							"value": "140"
+						},
+						{
+							"key": "Authorization",
+							"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2ODEyOTk2NzYsInVzZXJuYW1lIjoyNzkxOX0.ncSjRXktKZDwxBpymf43F3XIbfV0GANEaiSH65GHZwU"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2ODEyOTk2NzYsInVzZXJuYW1lIjoyNzkxOX0.ncSjRXktKZDwxBpymf43F3XIbfV0GANEaiSH65GHZwU\"\n}"
+				}
+			]
 		},
 		{
 			"name": "register",
@@ -84,6 +133,171 @@
 				}
 			},
 			"response": []
+		},
+		{
+			"name": "friend set",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "{{auth}}",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "localhost:8080/friend/set/25570",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"friend",
+						"set",
+						"25570"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "friend delete",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2ODEzMDUzNTIsInVzZXJfaWQiOjI3OTE5fQ.nFoqiEePs9_YJWdkC8Yuio6qR7VvbpZVtVWL6p7GEnw",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "localhost:8080/friend/delete/25570",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"friend",
+						"delete",
+						"25570"
+					],
+					"query": [
+						{
+							"key": "Authorization",
+							"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2ODEzMDUzNTIsInVzZXJfaWQiOjI3OTE5fQ.nFoqiEePs9_YJWdkC8Yuio6qR7VvbpZVtVWL6p7GEnw",
+							"disabled": true
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "post add",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"text\": \"heeeoo\",\n    \"user_id\": 27899\n}"
+				},
+				"url": {
+					"raw": "localhost:8080/post/create",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"post",
+						"create"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "post update",
+			"request": {
+				"method": "PUT",
+				"header": [],
+				"url": {
+					"raw": "localhost:8080/post/update",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"post",
+						"update"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "post delete",
+			"request": {
+				"method": "PUT",
+				"header": [],
+				"url": {
+					"raw": "localhost:8080/post/delete",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"post",
+						"delete"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "post get",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "localhost:8080/post/get",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"post",
+						"get"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "post get feed",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "localhost:8080/post/get_feed/",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"post",
+						"get_feed",
+						""
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "auth",
+			"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2ODEyOTk2NzYsInVzZXJuYW1lIjoyNzkxOX0.ncSjRXktKZDwxBpymf43F3XIbfV0GANEaiSH65GHZwU"
 		}
 	]
 }

@@ -19,15 +19,16 @@ services:
       - data:/var/lib/postgresql
       - ./.docker/conf/pg/pg_hba.conf:/var/lib/postgresql/data/pg_hba.conf
       - ./.docker/conf/pg/postgresql.conf:/var/lib/postgresql/data/postgresql.conf
+      - ./.docker/conf/pg/standby.signal:/var/lib/postgresql/data/standby.signal
     networks:
-     - soc
+      - soc
 
   pg_replica:
     image: postgres:15.2-alpine
     environment:
       POSTGRES_USER: soc_user
       POSTGRES_PASSWORD:
-      POSTGRES_DB: soc_replica
+      POSTGRES_DB: soc
       SERVICE_NAME: pg_replica
       POSTGRES_HOST_AUTH_METHOD: trust
       POSTGRES_INIT_DB_ARGS: "--locale=ru_RU"
@@ -58,17 +59,31 @@ services:
     networks:
       - soc
 
+  redis:
+    image: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - soc
+
   app:
     build:
       context: .
       dockerfile: .docker/dockerfile
     environment:
-      DB_HOST: pg
+      DB_REPLICA_HOST: pg_replica
+      DB_HOST: pg_replica_2
       DB_CONNECTION: pgsql
       DB_USER: soc_user
       DB_PASSWORD:
       DB_NAME: soc
       DB_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBIT_HOST: localhost
+      RABBIT_PORT: 5672
+      RABBIT_USER: guest
+      RABBIT_PASSWORD: guest
     volumes:
       - ./:/app/soc:delegated
       - ./.docker/entrypoint/soc.sh:/entrypoint.sh:ro
@@ -77,10 +92,24 @@ services:
       - "8080:8080"
     depends_on:
       - pg
+      - rabbitmq
+      - redis
     networks:
       - soc
+
+  rabbitmq:
+    image: rabbitmq:3.11-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - "rabbitmq_data:/var/lib/rabbitmq"
+    networks:
+      - soc
+
 volumes:
   data:
+  rabbitmq_data:
 
 networks:
   soc:

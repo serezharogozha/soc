@@ -3,8 +3,10 @@ package main
 import (
 	"awesomeProject10/pkg/config"
 	"awesomeProject10/pkg/infrastructure/datastore"
+	"awesomeProject10/pkg/infrastructure/queue"
 	"awesomeProject10/pkg/repository"
 	"awesomeProject10/pkg/service"
+	"awesomeProject10/pkg/service/consumers"
 	"awesomeProject10/pkg/transport"
 	"bufio"
 	"context"
@@ -34,13 +36,27 @@ func main() {
 	fmt.Println("init replica db")
 	dbReplicaPool := datastore.InitDB(cfg.DBRep)
 
+	fmt.Println("init redis")
+	redisClient := datastore.InitRedis(cfg.Redis)
+	cache := service.NewCache(redisClient)
+
 	fmt.Println("build user repository")
 	userRepository := repository.BuildUserRepository(dbPool, dbReplicaPool)
 	userService := service.BuildUserService(userRepository)
 
-	server := transport.NewServer(dbPool, userService)
+	friendRepository := repository.BuildFriendRepository(dbPool, dbReplicaPool)
+	friendService := service.BuildFriendService(friendRepository)
 
-	go upload(dbPool)
+	rabbitChannel := queue.CreateChanel(cfg.RabbitMQ)
+
+	postRepository := repository.BuildPostRepository(dbPool, dbReplicaPool, redisClient, cache, rabbitChannel)
+	postService := service.BuildPostService(postRepository)
+
+	go consumers.Consume(postRepository, cfg.RabbitMQ)
+
+	server := transport.NewServer(dbPool, userService, friendService, postService)
+
+	//go upload(dbPool)
 
 	if err := server.Start(); err != nil {
 		fmt.Println("Error starting server: ", err)

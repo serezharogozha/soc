@@ -73,7 +73,7 @@ func (u UserRepository) GetUser(ctx context.Context, userId int) (*domain.User, 
 func (u UserRepository) SearchUser(ctx context.Context, search domain.Search) ([]domain.UserSafe, error) {
 	const query = `SELECT id, first_name, second_name, birthdate, city FROM users WHERE first_name LIKE $1 and second_name LIKE $2 ORDER BY ID DESC`
 
-	rows, _ := u.dbRep.Query(ctx, query, search.FirstName, search.LastName)
+	rows, _ := u.db.Query(ctx, query, search.FirstName, search.LastName)
 	users := make([]domain.UserSafe, 0)
 
 	for rows.Next() {

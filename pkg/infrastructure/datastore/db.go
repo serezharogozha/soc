@@ -3,6 +3,7 @@ package datastore
 import (
 	"awesomeProject10/pkg/config"
 	"context"
+	"fmt"
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
@@ -18,6 +19,7 @@ func InitDB(dbCfg config.DbConf) *pgxpool.Pool {
 
 	db, err := pgxpool.ConnectConfig(context.Background(), cfg)
 	if err != nil {
+		fmt.Println("Error connecting to database: ", err)
 		panic(err)
 	}
 
