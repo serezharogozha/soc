@@ -115,29 +115,3 @@ func main() {
 		}
 	}
 }*/
-
-type RecentCounter struct {
-	milliseconds []int
-	count        int
-}
-
-func Constructor() RecentCounter {
-	counter := RecentCounter{
-		milliseconds: make([]int, 0),
-		count:        0,
-	}
-
-	return counter
-}
-
-func (this *RecentCounter) Ping(t int) int {
-	this.milliseconds = append(this.milliseconds, t)
-
-	for this.milliseconds[0] < t-3000 {
-		this.milliseconds = this.milliseconds[1:]
-	}
-
-	this.count = len(this.milliseconds)
-
-	return this.count
-}
