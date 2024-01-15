@@ -1,22 +1,24 @@
 package service
 
 import (
-	"awesomeProject10/pkg/domain"
 	"context"
+	"soc/pkg/repository"
 )
 
 type FriendService struct {
-	f domain.FriendRepository
+	friendRepository repository.FriendRepository
 }
 
-func BuildFriendService(f domain.FriendRepository) FriendService {
-	return FriendService{f: f}
+func BuildFriendService(friendRepository repository.FriendRepository) FriendService {
+	return FriendService{
+		friendRepository: friendRepository,
+	}
 }
 
 func (fs FriendService) SetFriend(ctx context.Context, userId int, friendId int) error {
-	return fs.f.SetFriend(ctx, userId, friendId)
+	return fs.friendRepository.SetFriend(ctx, userId, friendId)
 }
 
 func (fs FriendService) DeleteFriend(ctx context.Context, userId int, friendId int) error {
-	return fs.f.DeleteFriend(ctx, userId, friendId)
+	return fs.friendRepository.DeleteFriend(ctx, userId, friendId)
 }

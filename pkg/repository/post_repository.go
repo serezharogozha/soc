@@ -1,28 +1,20 @@
 package repository
 
 import (
-	"awesomeProject10/pkg/domain"
-	"awesomeProject10/pkg/service"
 	"context"
-	"encoding/json"
 	"fmt"
-	"github.com/go-redis/redis"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
-	"github.com/streadway/amqp"
-	"strconv"
+	"soc/pkg/domain"
 )
 
 type PostRepository struct {
 	db    *pgxpool.Pool
 	dbRep *pgxpool.Pool
-	Cache *service.Last1000Cache
-	redis *redis.Client
-	ch    *amqp.Channel
 }
 
-func BuildPostRepository(db *pgxpool.Pool, dbRep *pgxpool.Pool, redis *redis.Client, cache *service.Last1000Cache, ch *amqp.Channel) PostRepository {
-	return PostRepository{db: db, dbRep: dbRep, redis: redis, Cache: cache, ch: ch}
+func BuildPostRepository(db *pgxpool.Pool, dbRep *pgxpool.Pool) PostRepository {
+	return PostRepository{db: db, dbRep: dbRep}
 }
 
 func (p PostRepository) CreatePost(ctx context.Context, post domain.Post) error {
@@ -31,27 +23,6 @@ func (p PostRepository) CreatePost(ctx context.Context, post domain.Post) error 
 	if err != nil {
 		fmt.Println(err)
 		return err
-	}
-
-	body, err := json.Marshal(post)
-	if err != nil {
-		return err
-	}
-
-	err = p.ch.Publish(
-		"",
-		"posts",
-		false,
-		false,
-		amqp.Publishing{
-			ContentType: "text/plain",
-			Body:        body,
-		},
-	)
-	fmt.Println("Successfully Published Message to Queue")
-
-	if err != nil {
-		fmt.Println(err)
 	}
 
 	return nil
@@ -98,47 +69,20 @@ func (p PostRepository) GetPost(ctx context.Context, postId int) (*domain.Post, 
 }
 
 func (p PostRepository) GetFeed(ctx context.Context, userId int) (*domain.PostFeed, error) {
-	userIdStr := strconv.FormatInt(int64(userId), 10)
+	//userIdStr := strconv.FormatInt(int64(userId), 10)
 	postFeed := domain.PostFeed{}
 
-	cachedFeed, err := p.Cache.Get("feed:" + userIdStr)
+	const query = `SELECT * FROM posts LEFT JOIN friends ON posts.user_id = friends.friend_id WHERE friends.user_id = $1 ORDER BY posts.id DESC LIMIT 1000`
+	dbFeed, err := p.db.Query(ctx, query, userId)
 
 	if err != nil {
 		fmt.Println(err)
-		const query = `SELECT * FROM posts LEFT JOIN friends ON posts.user_id = friends.friend_id WHERE friends.user_id = $1 ORDER BY posts.id DESC LIMIT 1000`
-		dbFeed, err := p.db.Query(ctx, query, userId)
-
-		if err != nil {
-			fmt.Println(err)
-			return nil, err
-		}
-
-		err = dbFeed.Scan(&postFeed.Posts)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, postDb := range postFeed.Posts {
-			postJson, err := json.Marshal(postDb)
-			err = p.Cache.Add("feed:"+userIdStr, string(postJson))
-			if err != nil {
-				return nil, err
-			}
-		}
-		return &postFeed, nil
+		return nil, err
 	}
 
-	for _, cachedPost := range cachedFeed {
-		post := new(domain.Post)
-		err := json.Unmarshal([]byte(cachedPost), &post)
-		if err != nil {
-
-			fmt.Println(err)
-			return nil, err
-		}
-
-		fmt.Println(post)
-		postFeed.Posts = append(postFeed.Posts, *post)
+	err = dbFeed.Scan(&postFeed.Posts)
+	if err != nil {
+		return nil, err
 	}
 
 	return &postFeed, nil

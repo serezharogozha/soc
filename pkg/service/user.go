@@ -1,17 +1,18 @@
 package service
 
 import (
-	"awesomeProject10/pkg/domain"
 	"context"
 	"fmt"
 	"golang.org/x/crypto/bcrypt"
+	"soc/pkg/domain"
+	"soc/pkg/repository"
 )
 
 type UserService struct {
-	u domain.UserRepository
+	u repository.UserRepository
 }
 
-func BuildUserService(u domain.UserRepository) UserService {
+func BuildUserService(u repository.UserRepository) UserService {
 	return UserService{u: u}
 }
 
@@ -24,6 +25,7 @@ func HashPassword(password string) (string, error) {
 }
 
 func CheckPassword(password string, hashedPassword string) error {
+	fmt.Println(password, hashedPassword)
 	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }
 

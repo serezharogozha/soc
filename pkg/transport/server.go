@@ -1,25 +1,30 @@
 package transport
 
 import (
-	"awesomeProject10/pkg/domain"
-	"awesomeProject10/pkg/service"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/buaazp/fasthttprouter"
 	"github.com/dgrijalva/jwt-go"
+	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/middleware"
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/rs/zerolog/log"
 	"github.com/valyala/fasthttp"
+	"net/http"
+	"soc/pkg/domain"
+	"soc/pkg/service"
+	"soc/pkg/transport/ws"
 	"strconv"
 	"time"
 )
 
 type Server struct {
-	router        *fasthttprouter.Router
+	router        *chi.Mux
 	userService   service.UserService
 	friendService service.FriendService
 	postService   service.PostService
 	db            *pgxpool.Pool
+	wsHandler     *ws.WsHandler
 }
 
 type ErrorResponse struct {
@@ -36,117 +41,151 @@ type UserClaims struct {
 var signingKey = []byte("my-secret-key")
 var expirationTime = 15 * time.Minute
 
-func NewServer(db *pgxpool.Pool, service service.UserService, friendService service.FriendService, postService service.PostService) Server {
+func NewServer(db *pgxpool.Pool, service service.UserService, friendService service.FriendService, postService service.PostService, wsHandler *ws.WsHandler) Server {
 	fmt.Println("NewServer")
 	s := Server{}
-	s.router = fasthttprouter.New()
+
+	s.router = chi.NewRouter()
 	s.db = db
 	s.userService = service
 	s.friendService = friendService
 	s.postService = postService
+	s.wsHandler = wsHandler
 
-	s.router.GET("/user/get/:id", s.GetUser)
-	s.router.POST("/login", s.Login)
-	s.router.POST("/user/register", s.CreateUser)
-	s.router.POST("/user/search", s.UserSearch)
+	s.router.Use(middleware.RequestID)
+	s.router.Use(middleware.Logger)
+	s.router.Use(middleware.Recoverer)
 
-	s.router.PUT("/friend/set/:id", AuthMiddleware(s.FriendSet))
-	s.router.PUT("/friend/delete/:id", AuthMiddleware(s.FriendDelete))
+	s.router.Get("/user/get/:id", s.GetUser)
 
-	s.router.POST("/post/create", s.PostCreate)
-	s.router.PUT("/post/update", s.PostUpdate)
-	s.router.PUT("/post/delete", s.PostDelete)
-	s.router.GET("/post/get", s.PostGet)
-	s.router.GET("/post/get_feed", AuthMiddleware(s.GetFeed))
+	s.router.Post("/login", s.Login)
+	s.router.Post("/user/register", s.CreateUser)
+	s.router.Post("/user/search", s.UserSearch)
+
+	s.router.With(AuthMiddleware).Put("/friend/set/:id", s.FriendSet)
+	s.router.With(AuthMiddleware).Put("/friend/delete/:id", s.FriendDelete)
+	s.router.With(AuthMiddleware).Put("/post/get_feed", s.GetFeed)
+
+	s.router.Put("/post/create", s.PostCreate)
+	s.router.Put("/post/update", s.PostUpdate)
+	/*s.router.Put("/post/delete", s.PostDelete)
+	s.router.Put("/post/get", s.PostGet)*/
+
+	s.router.Get("/ws", s.wsHandler.HandleWS)
 
 	return s
 }
 
-func (s Server) PostCreate(ctx *fasthttp.RequestCtx) {
+func (s Server) PostCreate(w http.ResponseWriter, r *http.Request) {
 	post := &domain.Post{}
+	ctx := r.Context()
+	reqId := ctx.Value("request_id").(uint64)
 
-	err := json.Unmarshal(ctx.PostBody(), &post)
-	if err != nil {
-		fmt.Println(err)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&post); err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to unmarshal post",
-			RequestID: strconv.FormatUint(ctx.ID(), 10),
-			ErrorCode: fasthttp.StatusInternalServerError,
+			RequestID: strconv.FormatUint(reqId, 10),
+			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
-		ctx.Response.Header.Set("Content-Type", "application/json")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.SetBody(responseJson)
+
+		w.WriteHeader(http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		_, writeErr := w.Write(responseJson)
+
+		if writeErr != nil {
+			return
+		}
 		return
 	}
 
-	err = s.postService.CreatePost(ctx, *post)
+	err := s.postService.CreatePost(ctx, *post)
 	if err != nil {
-		fmt.Println(err)
 		errorResponse := ErrorResponse{
 			Message:   "Failed to create post",
-			RequestID: strconv.FormatUint(ctx.ID(), 10),
-			ErrorCode: fasthttp.StatusInternalServerError,
+			RequestID: strconv.FormatUint(reqId, 10),
+			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
-		ctx.Response.Header.Set("Content-Type", "application/json")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.SetBody(responseJson)
+
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		_, writeErr := w.Write(responseJson)
+		if writeErr != nil {
+			return
+		}
 		return
 	}
 
-	ctx.SetStatusCode(fasthttp.StatusOK)
+	w.WriteHeader(http.StatusOK)
+	_, err = w.Write([]byte("Post created"))
+	if err != nil {
+		return
+	}
 }
 
-func (s Server) PostUpdate(ctx *fasthttp.RequestCtx) {
+func (s Server) PostUpdate(w http.ResponseWriter, r *http.Request) {
 	post := &domain.Post{}
 
-	err := json.Unmarshal(ctx.PostBody(), &post)
-	if err != nil {
-		fmt.Println(err)
+	ctx := r.Context()
+	reqId := ctx.Value("request_id").(uint64)
+
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&post); err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to unmarshal post",
-			RequestID: strconv.FormatUint(ctx.ID(), 10),
-			ErrorCode: fasthttp.StatusInternalServerError,
+			RequestID: strconv.FormatUint(reqId, 10),
+			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
-		ctx.Response.Header.Set("Content-Type", "application/json")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.SetBody(responseJson)
+
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		_, writeErr := w.Write(responseJson)
+
+		if writeErr != nil {
+			return
+		}
 		return
 	}
 
-	err = s.postService.UpdatePost(ctx, *post)
+	err := s.postService.UpdatePost(ctx, *post)
 	if err != nil {
-		fmt.Println(err)
 		errorResponse := ErrorResponse{
 			Message:   "Failed to update post",
-			RequestID: strconv.FormatUint(ctx.ID(), 10),
-			ErrorCode: fasthttp.StatusInternalServerError,
+			RequestID: strconv.FormatUint(reqId, 10),
+			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
-		ctx.Response.Header.Set("Content-Type", "application/json")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.SetBody(responseJson)
+
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		_, writeErr := w.Write(responseJson)
+		if writeErr != nil {
+			return
+		}
 		return
 	}
 
-	ctx.SetStatusCode(fasthttp.StatusOK)
+	w.WriteHeader(http.StatusOK)
+	_, err = w.Write([]byte("Post updated"))
 }
 
-func (s Server) PostDelete(ctx *fasthttp.RequestCtx) {
-
-}
-
-func (s Server) PostGet(ctx *fasthttp.RequestCtx) {
+/*func (s Server) PostDelete(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (s Server) GetFeed(ctx *fasthttp.RequestCtx) {
-	claims, ok := ctx.UserValue("claims").(*UserClaims)
+func (s Server) PostGet(w http.ResponseWriter, r *http.Request) {
+
+}*/
+
+func (s Server) GetFeed(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*UserClaims)
 	if !ok {
 		fmt.Println("Failed to get claims")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -154,26 +193,30 @@ func (s Server) GetFeed(ctx *fasthttp.RequestCtx) {
 
 	err, feed := s.postService.GetFeed(ctx, userId)
 	if err != nil {
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	responseJson, _ := json.Marshal(feed)
-	ctx.Response.Header.Set("Content-Type", "application/json")
-	ctx.Write(responseJson)
-	ctx.SetStatusCode(fasthttp.StatusOK)
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	_, writeErr := w.Write(responseJson)
+	if writeErr != nil {
+		return
+	}
 }
 
-func (s Server) FriendSet(ctx *fasthttp.RequestCtx) {
-	claims, ok := ctx.UserValue("claims").(*UserClaims)
+func (s Server) FriendSet(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*UserClaims)
 	if !ok {
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	userId := claims.UserID
 
-	friendId := ctx.UserValue("id").(string)
+	friendId := ctx.Value("id").(string)
 	fmt.Println("friendId: ", friendId)
 	friendIdInt, err := strconv.Atoi(friendId)
 
@@ -182,50 +225,60 @@ func (s Server) FriendSet(ctx *fasthttp.RequestCtx) {
 		fmt.Println(err)
 		errorResponse := ErrorResponse{
 			Message:   "Failed to set friend",
-			RequestID: strconv.FormatUint(ctx.ID(), 10),
-			ErrorCode: fasthttp.StatusInternalServerError,
+			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
+			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
-		ctx.Response.Header.Set("Content-Type", "application/json")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write(responseJson)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, errWrite := w.Write(responseJson)
+		if errWrite != nil {
+			return
+		}
 		return
 	}
 
-	ctx.SetStatusCode(fasthttp.StatusOK)
+	w.WriteHeader(http.StatusOK)
 }
 
-func (s Server) FriendDelete(ctx *fasthttp.RequestCtx) {
-	claims, ok := ctx.UserValue("claims").(*UserClaims)
+func (s Server) FriendDelete(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*UserClaims)
 	if !ok {
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	userId := claims.UserID
 
-	friendId := ctx.UserValue("id").(string)
+	friendId := ctx.Value("id").(string)
 	friendIdInt, err := strconv.Atoi(friendId)
 
 	err = s.friendService.DeleteFriend(ctx, userId, friendIdInt)
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to delete friend",
-			RequestID: strconv.FormatUint(ctx.ID(), 10),
+			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
 			ErrorCode: fasthttp.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
-		ctx.Response.Header.Set("Content-Type", "application/json")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write(responseJson)
-		return
+
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		_, writeErr := w.Write(responseJson)
+		if writeErr != nil {
+			return
+		}
 	}
 
-	ctx.SetStatusCode(fasthttp.StatusOK)
+	w.WriteHeader(http.StatusOK)
 }
 
-func (s Server) GetUser(ctx *fasthttp.RequestCtx) {
-	userID := ctx.UserValue("id").(string)
+func (s Server) GetUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := ctx.Value("user_id").(string)
+	reqId := ctx.Value("request_id").(uint64)
+
 	userIdInt, err := strconv.Atoi(userID)
 	if err != nil {
 		return
@@ -234,43 +287,66 @@ func (s Server) GetUser(ctx *fasthttp.RequestCtx) {
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to fetch user details",
-			RequestID: strconv.FormatUint(ctx.ID(), 10),
-			ErrorCode: fasthttp.StatusInternalServerError,
+			RequestID: strconv.FormatUint(reqId, 10),
+			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
-		ctx.Response.Header.Set("Content-Type", "application/json")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write(responseJson)
+
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		_, writeErr := w.Write(responseJson)
+
+		if writeErr != nil {
+			return
+		}
+
 		return
 	}
 
 	userJson, _ := json.Marshal(user)
-	ctx.Response.Header.Set("Content-Type", "application/json")
-	ctx.SetStatusCode(fasthttp.StatusOK)
-	ctx.Write(userJson)
+
+	fmt.Println("userJson: ", userJson)
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	_, writeErr := w.Write(userJson)
+	if writeErr != nil {
+		return
+	}
 }
 
-func (s Server) CreateUser(ctx *fasthttp.RequestCtx) {
+func (s Server) CreateUser(w http.ResponseWriter, r *http.Request) {
 	user := &domain.User{}
+	ctx := r.Context()
+	fmt.Println("ctx: ", ctx)
 
-	err := json.Unmarshal(ctx.PostBody(), user)
-	if err != nil {
-		fmt.Println(err)
-		ctx.Error("Bad Request", fasthttp.StatusBadRequest)
+	reqId := middleware.GetReqID(r.Context())
+
+	fmt.Println("reqId: ", reqId)
+	fmt.Println("create user")
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&user); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	userId, err := s.userService.CreateUser(ctx, *user)
+	fmt.Println("userId: ", userId)
 	if err != nil {
+		fmt.Println(err)
 		errorResponse := ErrorResponse{
 			Message:   "Internal server error",
-			RequestID: strconv.FormatUint(ctx.ID(), 10),
+			RequestID: reqId,
 			ErrorCode: fasthttp.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
-		ctx.Response.Header.Set("Content-Type", "application/json")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write(responseJson)
+
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		_, writeErr := w.Write(responseJson)
+
+		if writeErr != nil {
+			return
+		}
 		return
 	}
 
@@ -284,27 +360,38 @@ func (s Server) CreateUser(ctx *fasthttp.RequestCtx) {
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Internal server error",
-			RequestID: strconv.FormatUint(ctx.ID(), 10),
-			ErrorCode: fasthttp.StatusInternalServerError,
+			RequestID: reqId,
+			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
-		ctx.Response.Header.Set("Content-Type", "application/json")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write(responseJson)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		_, writeErr := w.Write(responseJson)
+
+		if writeErr != nil {
+			return
+		}
+		return
+
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, writeErr := w.Write(jsonResponse)
+	if writeErr != nil {
 		return
 	}
 
-	ctx.SetContentType("application/json")
-	ctx.SetStatusCode(fasthttp.StatusOK)
-	ctx.Write(jsonResponse)
+	return
 }
 
-func (s Server) UserSearch(ctx *fasthttp.RequestCtx) {
+func (s Server) UserSearch(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	userSearch := &domain.Search{}
-	err := json.Unmarshal(ctx.PostBody(), userSearch)
-	if err != nil {
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&userSearch); err != nil {
 		fmt.Println(err)
-		ctx.Error("Bad Request", fasthttp.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
@@ -313,54 +400,74 @@ func (s Server) UserSearch(ctx *fasthttp.RequestCtx) {
 		fmt.Println(err)
 		errorResponse := ErrorResponse{
 			Message:   "Failed to fetch user details",
-			RequestID: strconv.FormatUint(ctx.ID(), 10),
-			ErrorCode: fasthttp.StatusInternalServerError,
+			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
+			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
-		ctx.Response.Header.Set("Content-Type", "application/json")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write(responseJson)
+
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		_, writeErr := w.Write(responseJson)
+		if writeErr != nil {
+			return
+		}
 		return
 	}
 
 	userJson, _ := json.Marshal(users)
-	ctx.Response.Header.Set("Content-Type", "application/json")
-	ctx.SetStatusCode(fasthttp.StatusOK)
-	ctx.Write(userJson)
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	_, writeErr := w.Write(userJson)
+	if writeErr != nil {
+		return
+	}
+	return
 }
 
-func (s Server) Login(ctx *fasthttp.RequestCtx) {
+func (s Server) Login(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("login")
 	userLogin := &domain.Login{}
+	ctx := r.Context()
 
-	err := json.Unmarshal(ctx.PostBody(), userLogin)
-	if err != nil {
-		ctx.Error("Bad Request", fasthttp.StatusBadRequest)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&userLogin); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
+	log.Log().Msg("login")
+	fmt.Println(userLogin)
+
 	existedUser, err := s.userService.GetUser(ctx, userLogin.Id)
 	if err != nil {
+		fmt.Println(err)
 		if err == sql.ErrNoRows {
-			ctx.Error("User not found", fasthttp.StatusNotFound)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		} else {
 			errorResponse := ErrorResponse{
 				Message:   "Failed to found user",
-				RequestID: strconv.FormatUint(ctx.ID(), 10),
-				ErrorCode: fasthttp.StatusInternalServerError,
+				RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
+				ErrorCode: http.StatusInternalServerError,
 			}
 			responseJson, _ := json.Marshal(errorResponse)
-			ctx.Response.Header.Set("Content-Type", "application/json")
-			ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-			ctx.Write(responseJson)
+
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Header().Set("Content-Type", "application/json")
+			_, writeErr := w.Write(responseJson)
+			if writeErr != nil {
+				return
+			}
 			return
 		}
 	}
 
+	fmt.Println("existedUser: ", existedUser)
+
 	err = service.CheckPassword(userLogin.Password, existedUser.Password)
 	if err != nil {
-		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
+		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 
@@ -368,17 +475,21 @@ func (s Server) Login(ctx *fasthttp.RequestCtx) {
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to generate token",
-			RequestID: strconv.FormatUint(ctx.ID(), 10),
-			ErrorCode: fasthttp.StatusInternalServerError,
+			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
+			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
-		ctx.Response.Header.Set("Content-Type", "application/json")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write(responseJson)
+
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		_, writeErr := w.Write(responseJson)
+		if writeErr != nil {
+			return
+		}
 		return
 	}
 
-	ctx.Response.Header.Set("Authorization", "Bearer "+token)
+	w.Header().Set("Authorization", "Bearer "+token)
 
 	response := struct {
 		Token string `json:"token"`
@@ -390,74 +501,32 @@ func (s Server) Login(ctx *fasthttp.RequestCtx) {
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to encode response",
-			RequestID: strconv.FormatUint(ctx.ID(), 10),
+			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
 			ErrorCode: fasthttp.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
-		ctx.Response.Header.Set("Content-Type", "application/json")
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write(responseJson)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, errWrite := w.Write(responseJson)
+		if errWrite != nil {
+			return
+		}
+
 		return
 	}
 
-	ctx.SetContentType("application/json")
-	ctx.SetStatusCode(fasthttp.StatusOK)
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
 
-	ctx.Write(responseJson)
-}
-
-func generateToken(username int) (string, error) {
-	token := jwt.New(jwt.SigningMethodHS256)
-
-	claims := token.Claims.(jwt.MapClaims)
-	claims["user_id"] = username
-	claims["exp"] = time.Now().Add(expirationTime).Unix()
-
-	signedToken, err := token.SignedString(signingKey)
-	if err != nil {
-		return "", err
+	_, writeErr := w.Write(responseJson)
+	if writeErr != nil {
+		return
 	}
-
-	return signedToken, nil
-}
-
-func AuthMiddleware(next fasthttp.RequestHandler) fasthttp.RequestHandler {
-	return func(ctx *fasthttp.RequestCtx) {
-		authHeader := string(ctx.Request.Header.Peek("Authorization"))
-		if authHeader == "" {
-			fmt.Println("no auth header")
-			ctx.SetStatusCode(fasthttp.StatusUnauthorized)
-			return
-		}
-
-		tokenString := authHeader[7:]
-		token, err := jwt.ParseWithClaims(tokenString, &UserClaims{}, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return signingKey, nil
-		})
-
-		if err != nil {
-			fmt.Println(err)
-			ctx.SetStatusCode(fasthttp.StatusUnauthorized)
-			return
-		}
-
-		if !token.Valid {
-			fmt.Println(err)
-			ctx.SetStatusCode(fasthttp.StatusUnauthorized)
-			return
-		}
-		fmt.Println("get claims")
-		claims := token.Claims.(*UserClaims)
-		ctx.SetUserValue("claims", claims)
-		fmt.Println("next")
-		next(ctx)
-	}
+	return
 }
 
 func (s Server) Start() error {
 	fmt.Println("server started")
-	return fasthttp.ListenAndServe(":8080", s.router.Handler)
+	return http.ListenAndServe(":8080", s.router)
 }

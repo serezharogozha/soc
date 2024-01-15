@@ -1,23 +1,21 @@
 package domain
 
-import "context"
-
 type User struct {
-	Id         int    `json:"id"`
-	FirstName  string `json:"first_name"`
-	SecondName string `json:"second_name"`
-	Birthdate  int    `json:"birthdate"`
-	Biography  string `json:"biography"`
-	City       string `json:"city"`
-	Password   string `json:"password"`
+	Id        int    `json:"id"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Age       int    `json:"age"`
+	Biography string `json:"biography"`
+	City      string `json:"city"`
+	Password  string `json:"password"`
 }
 
 type UserSafe struct {
-	Id         int    `json:"id"`
-	FirstName  string `json:"first_name"`
-	SecondName string `json:"second_name"`
-	Birthdate  int    `json:"birthdate"`
-	City       string `json:"city"`
+	Id        int    `json:"id"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Age       int    `json:"age"`
+	City      string `json:"city"`
 }
 
 type Login struct {
@@ -27,11 +25,5 @@ type Login struct {
 
 type Search struct {
 	FirstName string `json:"first_name"`
-	LastName  string `json:"second_name"`
-}
-
-type UserRepository interface {
-	InsertUser(ctx context.Context, user User) (string, error)
-	GetUser(ctx context.Context, userId int) (*User, error)
-	SearchUser(ctx context.Context, search Search) ([]UserSafe, error)
+	LastName  string `json:"last_name"`
 }

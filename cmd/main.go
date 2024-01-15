@@ -1,62 +1,75 @@
 package main
 
 import (
-	"awesomeProject10/pkg/config"
-	"awesomeProject10/pkg/infrastructure/datastore"
-	"awesomeProject10/pkg/infrastructure/queue"
-	"awesomeProject10/pkg/repository"
-	"awesomeProject10/pkg/service"
-	"awesomeProject10/pkg/service/consumers"
-	"awesomeProject10/pkg/transport"
-	"bufio"
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v4/pgxpool"
 	"os"
-	"strings"
-	"time"
+	"os/signal"
+	"soc/pkg/config"
+	"soc/pkg/infrastructure/datastore"
+	"soc/pkg/infrastructure/log"
+	"soc/pkg/repository"
+	"soc/pkg/service"
+	"soc/pkg/service/msgbroker"
+	"soc/pkg/transport"
+	"soc/pkg/transport/ws"
+	"syscall"
 )
 
 func main() {
+	initLogger := log.InitLogger()
+
 	defer func() {
 		if r := recover(); r != nil {
-			_ = fmt.Sprintf("%s", r)
+			initLogger.Fatal().Msgf("%s", r)
 		}
 	}()
 
-	fmt.Println("config loading")
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Println("Error loading config: ", err)
-		os.Exit(1)
+		initLogger.Fatal().Msgf("Error loading config: %s", err)
 	}
 
-	fmt.Println("init db")
-	dbPool := datastore.InitDB(cfg.DB)
-	fmt.Println("init replica db")
-	dbReplicaPool := datastore.InitDB(cfg.DBRep)
+	sigsCh := make(chan os.Signal, 1)
+	signal.Notify(sigsCh, syscall.SIGINT, syscall.SIGTERM)
+	_, cancelCtx := context.WithCancel(context.Background())
 
-	fmt.Println("init redis")
-	redisClient := datastore.InitRedis(cfg.Redis)
-	cache := service.NewCache(redisClient)
+	go func() {
+		sig := <-sigsCh
+		initLogger.Info().Msgf("Got signal: %s", sig)
+		cancelCtx()
+	}()
 
-	fmt.Println("build user repository")
+	dbPool := datastore.InitDB(cfg.DB, initLogger)
+	dbReplicaPool := datastore.InitDB(cfg.DBRep, initLogger)
+
+	redisClient := datastore.InitRedis(cfg.Redis, initLogger)
+
 	userRepository := repository.BuildUserRepository(dbPool, dbReplicaPool)
 	userService := service.BuildUserService(userRepository)
 
 	friendRepository := repository.BuildFriendRepository(dbPool, dbReplicaPool)
 	friendService := service.BuildFriendService(friendRepository)
 
-	rabbitChannel := queue.CreateChanel(cfg.RabbitMQ)
+	postRepository := repository.BuildPostRepository(dbPool, dbReplicaPool)
+	postCacheRepository := repository.BuildPostCacheRepository(redisClient)
 
-	postRepository := repository.BuildPostRepository(dbPool, dbReplicaPool, redisClient, cache, rabbitChannel)
-	postService := service.BuildPostService(postRepository)
+	broker := msgbroker.NewMsgBroker("amqp://" + cfg.RabbitMQ.User + ":" + cfg.RabbitMQ.Password + "@" + cfg.RabbitMQ.Host + ":" + cfg.RabbitMQ.Port + "/")
+	queueName := "posts"
+	queue := broker.InitQueue(queueName)
 
-	go consumers.Consume(postRepository, cfg.RabbitMQ)
+	go broker.RunConsumer(queue.Name)
 
-	server := transport.NewServer(dbPool, userService, friendService, postService)
+	wsHandler := ws.NewWsHandler()
+	postService := service.BuildPostService(postRepository, postCacheRepository, wsHandler)
 
-	//go upload(dbPool)
+	server := transport.NewServer(
+		dbPool,
+		userService,
+		friendService,
+		postService,
+		wsHandler,
+	)
 
 	if err := server.Start(); err != nil {
 		fmt.Println("Error starting server: ", err)
@@ -64,7 +77,8 @@ func main() {
 	}
 
 }
-func upload(dbPool *pgxpool.Pool) {
+
+/*func upload(dbPool *pgxpool.Pool) {
 	file, err := os.Open("./cmd/people.csv")
 	if err != nil {
 		panic(err)
@@ -100,4 +114,30 @@ func upload(dbPool *pgxpool.Pool) {
 			fmt.Printf("Inserted user %d\n", counter)
 		}
 	}
+}*/
+
+type RecentCounter struct {
+	milliseconds []int
+	count        int
+}
+
+func Constructor() RecentCounter {
+	counter := RecentCounter{
+		milliseconds: make([]int, 0),
+		count:        0,
+	}
+
+	return counter
+}
+
+func (this *RecentCounter) Ping(t int) int {
+	this.milliseconds = append(this.milliseconds, t)
+
+	for this.milliseconds[0] < t-3000 {
+		this.milliseconds = this.milliseconds[1:]
+	}
+
+	this.count = len(this.milliseconds)
+
+	return this.count
 }
