@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
@@ -19,7 +18,6 @@ func (f FriendRepository) SetFriend(ctx context.Context, userId int, friendId in
 	const query = `INSERT INTO friends (user_id, friend_id) VALUES ($1, $2)`
 	_, err := f.db.Exec(ctx, query, userId, friendId)
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 
@@ -30,7 +28,6 @@ func (f FriendRepository) DeleteFriend(ctx context.Context, userId int, friendId
 	const query = `DELETE FROM friends WHERE user_id= $1 AND friend_id= $2`
 	_, err := f.db.Exec(ctx, query, userId, friendId)
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 

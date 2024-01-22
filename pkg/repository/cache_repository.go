@@ -2,7 +2,6 @@ package repository
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/go-redis/redis"
 	"soc/pkg/domain"
 	"time"
@@ -21,7 +20,6 @@ func (p PostCacheRepository) GetFeed(userId string) (*domain.PostFeed, error) {
 	if err != nil {
 		return nil, err
 	}
-	//TODO check errors
 	postFeed := domain.PostFeed{}
 
 	for _, cachedPost := range cachedFeed {
@@ -29,11 +27,8 @@ func (p PostCacheRepository) GetFeed(userId string) (*domain.PostFeed, error) {
 		err := json.Unmarshal([]byte(cachedPost), &post)
 		if err != nil {
 
-			fmt.Println(err)
 			return nil, err
 		}
-
-		fmt.Println(post)
 		postFeed.Posts = append(postFeed.Posts, *post)
 	}
 

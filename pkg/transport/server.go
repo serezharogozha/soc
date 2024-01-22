@@ -7,13 +7,13 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v4/pgxpool"
-	"github.com/rs/zerolog/log"
 	"github.com/valyala/fasthttp"
 	"net/http"
 	"soc/pkg/domain"
 	"soc/pkg/service"
-	"soc/pkg/transport/ws"
+	"soc/pkg/service/msgbroker"
 	"strconv"
 	"time"
 )
@@ -24,7 +24,8 @@ type Server struct {
 	friendService service.FriendService
 	postService   service.PostService
 	db            *pgxpool.Pool
-	wsHandler     *ws.WsHandler
+	broker        *msgbroker.MsgBroker
+	wsHandler     *service.WsService
 }
 
 type ErrorResponse struct {
@@ -38,15 +39,15 @@ type UserClaims struct {
 	jwt.StandardClaims
 }
 
-var signingKey = []byte("my-secret-key")
-var expirationTime = 15 * time.Minute
+var SigningKey = []byte("my-secret-key")
+var ExpirationTime = 15 * time.Minute
 
-func NewServer(db *pgxpool.Pool, service service.UserService, friendService service.FriendService, postService service.PostService, wsHandler *ws.WsHandler) Server {
-	fmt.Println("NewServer")
+func NewServer(db *pgxpool.Pool, service service.UserService, friendService service.FriendService, postService service.PostService, msgBroker *msgbroker.MsgBroker, wsHandler *service.WsService) Server {
 	s := Server{}
 
 	s.router = chi.NewRouter()
 	s.db = db
+	s.broker = msgBroker
 	s.userService = service
 	s.friendService = friendService
 	s.postService = postService
@@ -56,36 +57,56 @@ func NewServer(db *pgxpool.Pool, service service.UserService, friendService serv
 	s.router.Use(middleware.Logger)
 	s.router.Use(middleware.Recoverer)
 
-	s.router.Get("/user/get/:id", s.GetUser)
+	s.router.Get("/user/get/{id}", s.GetUser) //ok
 
-	s.router.Post("/login", s.Login)
-	s.router.Post("/user/register", s.CreateUser)
-	s.router.Post("/user/search", s.UserSearch)
+	s.router.Post("/login", s.Login)              // ok
+	s.router.Post("/user/register", s.CreateUser) // ok
+	s.router.Post("/user/search", s.UserSearch)   // ok
 
-	s.router.With(AuthMiddleware).Put("/friend/set/:id", s.FriendSet)
-	s.router.With(AuthMiddleware).Put("/friend/delete/:id", s.FriendDelete)
-	s.router.With(AuthMiddleware).Put("/post/get_feed", s.GetFeed)
+	s.router.With(AuthMiddleware).Put("/friend/set/{id}", s.FriendSet)       // ok
+	s.router.With(AuthMiddleware).Put("/friend/delete/{id}", s.FriendDelete) // ok
+	s.router.With(AuthMiddleware).Put("/post/get_feed", s.GetFeed)           // ?????
 
-	s.router.Put("/post/create", s.PostCreate)
-	s.router.Put("/post/update", s.PostUpdate)
-	/*s.router.Put("/post/delete", s.PostDelete)
-	s.router.Put("/post/get", s.PostGet)*/
+	s.router.Post("/post/create", s.PostCreate) // ok
+	s.router.Put("/post/update", s.PostUpdate)  // pochti ok
 
-	s.router.Get("/ws", s.wsHandler.HandleWS)
+	s.router.With(AuthMiddleware).Get("/post/feed/posted", s.HandleWS)
 
 	return s
+}
+
+func (s Server) HandleWS(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*UserClaims)
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	userId := strconv.Itoa(claims.UserID)
+
+	conn, err := service.Upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("failed upgrading connection"))
+		return
+	}
+	defer conn.Close()
+	clientID := uuid.New().String()
+
+	s.wsHandler.ProcessMessage(conn, clientID, userId)
 }
 
 func (s Server) PostCreate(w http.ResponseWriter, r *http.Request) {
 	post := &domain.Post{}
 	ctx := r.Context()
-	reqId := ctx.Value("request_id").(uint64)
+	reqId := middleware.GetReqID(r.Context())
 
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&post); err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to unmarshal post",
-			RequestID: strconv.FormatUint(reqId, 10),
+			RequestID: reqId,
 			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
@@ -104,7 +125,7 @@ func (s Server) PostCreate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to create post",
-			RequestID: strconv.FormatUint(reqId, 10),
+			RequestID: reqId,
 			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
@@ -118,6 +139,18 @@ func (s Server) PostCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	go func() {
+		messageBody, err := json.Marshal(post)
+		if err != nil {
+			return
+		}
+
+		err = s.broker.Publish("posts", string(messageBody))
+		if err != nil {
+			return
+		}
+	}()
+
 	w.WriteHeader(http.StatusOK)
 	_, err = w.Write([]byte("Post created"))
 	if err != nil {
@@ -129,13 +162,13 @@ func (s Server) PostUpdate(w http.ResponseWriter, r *http.Request) {
 	post := &domain.Post{}
 
 	ctx := r.Context()
-	reqId := ctx.Value("request_id").(uint64)
+	reqId := middleware.GetReqID(r.Context())
 
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&post); err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to unmarshal post",
-			RequestID: strconv.FormatUint(reqId, 10),
+			RequestID: reqId,
 			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
@@ -154,9 +187,10 @@ func (s Server) PostUpdate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to update post",
-			RequestID: strconv.FormatUint(reqId, 10),
+			RequestID: reqId,
 			ErrorCode: http.StatusInternalServerError,
 		}
+
 		responseJson, _ := json.Marshal(errorResponse)
 
 		w.WriteHeader(http.StatusInternalServerError)
@@ -184,7 +218,6 @@ func (s Server) GetFeed(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	claims, ok := ctx.Value("claims").(*UserClaims)
 	if !ok {
-		fmt.Println("Failed to get claims")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -216,13 +249,11 @@ func (s Server) FriendSet(w http.ResponseWriter, r *http.Request) {
 
 	userId := claims.UserID
 
-	friendId := ctx.Value("id").(string)
-	fmt.Println("friendId: ", friendId)
+	friendId := chi.URLParam(r, "id")
 	friendIdInt, err := strconv.Atoi(friendId)
 
 	err = s.friendService.SetFriend(ctx, userId, friendIdInt)
 	if err != nil {
-		fmt.Println(err)
 		errorResponse := ErrorResponse{
 			Message:   "Failed to set friend",
 			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
@@ -251,7 +282,7 @@ func (s Server) FriendDelete(w http.ResponseWriter, r *http.Request) {
 
 	userId := claims.UserID
 
-	friendId := ctx.Value("id").(string)
+	friendId := chi.URLParam(r, "id")
 	friendIdInt, err := strconv.Atoi(friendId)
 
 	err = s.friendService.DeleteFriend(ctx, userId, friendIdInt)
@@ -276,8 +307,8 @@ func (s Server) FriendDelete(w http.ResponseWriter, r *http.Request) {
 
 func (s Server) GetUser(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	userID := ctx.Value("user_id").(string)
-	reqId := ctx.Value("request_id").(uint64)
+	userID := chi.URLParam(r, "id")
+	reqId := middleware.GetReqID(r.Context())
 
 	userIdInt, err := strconv.Atoi(userID)
 	if err != nil {
@@ -287,7 +318,7 @@ func (s Server) GetUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to fetch user details",
-			RequestID: strconv.FormatUint(reqId, 10),
+			RequestID: reqId,
 			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
@@ -305,7 +336,6 @@ func (s Server) GetUser(w http.ResponseWriter, r *http.Request) {
 
 	userJson, _ := json.Marshal(user)
 
-	fmt.Println("userJson: ", userJson)
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	_, writeErr := w.Write(userJson)
@@ -317,12 +347,8 @@ func (s Server) GetUser(w http.ResponseWriter, r *http.Request) {
 func (s Server) CreateUser(w http.ResponseWriter, r *http.Request) {
 	user := &domain.User{}
 	ctx := r.Context()
-	fmt.Println("ctx: ", ctx)
-
 	reqId := middleware.GetReqID(r.Context())
 
-	fmt.Println("reqId: ", reqId)
-	fmt.Println("create user")
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&user); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -330,9 +356,7 @@ func (s Server) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userId, err := s.userService.CreateUser(ctx, *user)
-	fmt.Println("userId: ", userId)
 	if err != nil {
-		fmt.Println(err)
 		errorResponse := ErrorResponse{
 			Message:   "Internal server error",
 			RequestID: reqId,
@@ -390,14 +414,12 @@ func (s Server) UserSearch(w http.ResponseWriter, r *http.Request) {
 	userSearch := &domain.Search{}
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&userSearch); err != nil {
-		fmt.Println(err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	users, err := s.userService.SearchUser(ctx, *userSearch)
 	if err != nil {
-		fmt.Println(err)
 		errorResponse := ErrorResponse{
 			Message:   "Failed to fetch user details",
 			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
@@ -426,7 +448,6 @@ func (s Server) UserSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s Server) Login(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("login")
 	userLogin := &domain.Login{}
 	ctx := r.Context()
 
@@ -436,12 +457,8 @@ func (s Server) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Log().Msg("login")
-	fmt.Println(userLogin)
-
 	existedUser, err := s.userService.GetUser(ctx, userLogin.Id)
 	if err != nil {
-		fmt.Println(err)
 		if err == sql.ErrNoRows {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -462,8 +479,6 @@ func (s Server) Login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
-	fmt.Println("existedUser: ", existedUser)
 
 	err = service.CheckPassword(userLogin.Password, existedUser.Password)
 	if err != nil {

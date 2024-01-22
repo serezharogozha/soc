@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"golang.org/x/crypto/bcrypt"
 	"soc/pkg/domain"
 	"soc/pkg/repository"
@@ -19,27 +18,24 @@ func BuildUserService(u repository.UserRepository) UserService {
 func HashPassword(password string) (string, error) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return "", fmt.Errorf("failed to hash password: %w", err)
+		return "", err
 	}
 	return string(hashedPassword), nil
 }
 
 func CheckPassword(password string, hashedPassword string) error {
-	fmt.Println(password, hashedPassword)
 	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }
 
 func (us UserService) CreateUser(ctx context.Context, user domain.User) (string, error) {
 	password, err := HashPassword(user.Password)
 	if err != nil {
-		fmt.Println(err)
 		return "", err
 	}
 
 	user.Password = password
 	userId, err := us.u.InsertUser(ctx, user)
 	if err != nil {
-		fmt.Println(err)
 		return "", err
 	}
 

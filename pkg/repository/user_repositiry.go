@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"soc/pkg/domain"
@@ -44,7 +43,6 @@ func (u UserRepository) InsertUser(ctx context.Context, user domain.User) (strin
     `, user.FirstName, user.LastName, user.Age, user.Biography, user.City, user.Password).Scan(&user.Id)
 
 	if err != nil {
-		fmt.Println(err)
 		return "", err
 	}
 
@@ -81,7 +79,6 @@ func (u UserRepository) SearchUser(ctx context.Context, search domain.Search) ([
 		err := rows.Scan(&userSafe.Id, &userSafe.FirstName, &userSafe.LastName, &userSafe.Age, &userSafe.City)
 
 		if err != nil {
-			fmt.Println(err)
 			if err == pgx.ErrNoRows {
 				return nil, nil
 			}

@@ -3,25 +3,22 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/rs/zerolog/log"
 	"soc/pkg/domain"
 	"soc/pkg/repository"
-	"soc/pkg/transport/ws"
 	"strconv"
 )
 
 type PostService struct {
 	postRepository      repository.PostRepository
 	postCacheRepository repository.PostCacheRepository
-	wsHandler           *ws.WsHandler
+	wsHandler           *WsService
 }
 
-func BuildPostService(postRepository repository.PostRepository, postCacheRepository repository.PostCacheRepository, wsHandler *ws.WsHandler) PostService {
+func BuildPostService(postRepository repository.PostRepository, postCacheRepository repository.PostCacheRepository) PostService {
 	return PostService{
 		postRepository:      postRepository,
 		postCacheRepository: postCacheRepository,
-		wsHandler:           wsHandler,
 	}
 }
 
@@ -29,7 +26,6 @@ func (ps PostService) GetFriendToPublish(post domain.Post) (domain.Friends, erro
 	friendsOfUser, err := ps.postRepository.GetFriendsOfUser(post.UserId)
 
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 
@@ -42,28 +38,16 @@ func (ps PostService) PublishPostToCache(post domain.Post, friendsOfUser domain.
 
 		postJson, err := json.Marshal(post)
 		if err != nil {
-			fmt.Println(err)
 			return err
 		}
 
 		err = ps.postCacheRepository.Add("feed:"+UserIdStr, string(postJson))
 		if err != nil {
-			fmt.Println("Failed to add post to cache")
-			fmt.Println(err)
 			return err
 		}
-		ps.PublishToWs(UserIdStr, string(postJson))
+
 	}
 	return nil
-}
-
-func (ps PostService) PublishToWs(UserIdStr string, postJson string) {
-	topic := "feed:" + UserIdStr
-	//TODO
-	err := ps.wsHandler.Publish(topic, []byte(postJson))
-	if err != nil {
-		fmt.Println(err)
-	}
 }
 
 func (ps PostService) CreatePost(ctx context.Context, post domain.Post) error {

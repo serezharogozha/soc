@@ -42,7 +42,7 @@ services:
       DB_PORT: 5432
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      RABBIT_HOST: localhost
+      RABBIT_HOST: rabbitmq
       RABBIT_PORT: 5672
       RABBIT_USER: guest
       RABBIT_PASSWORD: guest

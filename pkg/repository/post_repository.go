@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"soc/pkg/domain"
@@ -21,7 +20,6 @@ func (p PostRepository) CreatePost(ctx context.Context, post domain.Post) error 
 	const query = `INSERT INTO posts (text, user_id) VALUES ($1, $2) RETURNING id`
 	err := p.db.QueryRow(ctx, query, post.Text, post.UserId).Scan(&post.Id)
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 
@@ -32,7 +30,6 @@ func (p PostRepository) UpdatePost(ctx context.Context, post domain.Post) error 
 	const query = `UPDATE posts SET text = $1 and user_id = $2 where id = $3`
 	_, err := p.db.Exec(ctx, query, post.Text, post.UserId, post.Id)
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 
@@ -43,7 +40,6 @@ func (p PostRepository) DeletePost(ctx context.Context, postId int) error {
 	const query = `DELETE FROM posts WHERE id =$ 1`
 	_, err := p.db.Exec(ctx, query, postId)
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 
@@ -76,7 +72,6 @@ func (p PostRepository) GetFeed(ctx context.Context, userId int) (*domain.PostFe
 	dbFeed, err := p.db.Query(ctx, query, userId)
 
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 
@@ -101,7 +96,6 @@ func (p PostRepository) GetFriendsOfUser(userId int) (domain.Friends, error) {
 	for rows.Next() {
 		friend := new(domain.Friend)
 		err := rows.Scan(&friend.Id)
-		fmt.Println(friend.Id)
 		if err != nil {
 			return friends, err
 		}
