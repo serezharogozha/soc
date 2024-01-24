@@ -1,7 +1,6 @@
 package service
 
 import (
-	"fmt"
 	"net/http"
 	"sync"
 
@@ -68,7 +67,6 @@ func (s *WsService) ProcessMessage(conn *websocket.Conn, clientID string, userId
 
 		switch msg.Event {
 		case subscribe:
-			fmt.Println("Subscribing user: ", userId)
 			go s.Subscribe(conn, clientID, userId)
 		case unsubscribe:
 			go s.Unsubscribe(clientID, userId)
@@ -79,7 +77,6 @@ func (s *WsService) ProcessMessage(conn *websocket.Conn, clientID string, userId
 }
 
 func (s *WsService) Publish(userId string, message []byte) error {
-	fmt.Println("Publishing message to user: ", userId)
 	s.Subscriptions.RLock()
 	clients, ok := s.Subscriptions.Subscribers[userId]
 	s.Subscriptions.RUnlock()

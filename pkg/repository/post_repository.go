@@ -16,14 +16,14 @@ func BuildPostRepository(db *pgxpool.Pool, dbRep *pgxpool.Pool) PostRepository {
 	return PostRepository{db: db, dbRep: dbRep}
 }
 
-func (p PostRepository) CreatePost(ctx context.Context, post domain.Post) error {
+func (p PostRepository) CreatePost(ctx context.Context, post domain.Post) (int, error) {
 	const query = `INSERT INTO posts (text, user_id) VALUES ($1, $2) RETURNING id`
 	err := p.db.QueryRow(ctx, query, post.Text, post.UserId).Scan(&post.Id)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	return nil
+	return post.Id, nil
 }
 
 func (p PostRepository) UpdatePost(ctx context.Context, post domain.Post) error {

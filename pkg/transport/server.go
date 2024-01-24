@@ -121,7 +121,8 @@ func (s Server) PostCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.postService.CreatePost(ctx, *post)
+	postId, err := s.postService.CreatePost(ctx, *post)
+	post.Id = postId
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to create post",

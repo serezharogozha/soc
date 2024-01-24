@@ -12,9 +12,10 @@ import (
 	"soc/pkg/service"
 	"soc/pkg/service/msgbroker"
 	"soc/pkg/transport"
-	"soc/pkg/transport/ws"
 	"syscall"
 )
+
+const queueName = "posts"
 
 func main() {
 	initLogger := log.InitLogger()
@@ -54,20 +55,26 @@ func main() {
 	postRepository := repository.BuildPostRepository(dbPool, dbReplicaPool)
 	postCacheRepository := repository.BuildPostCacheRepository(redisClient)
 
-	broker := msgbroker.NewMsgBroker("amqp://" + cfg.RabbitMQ.User + ":" + cfg.RabbitMQ.Password + "@" + cfg.RabbitMQ.Host + ":" + cfg.RabbitMQ.Port + "/")
-	queueName := "posts"
+	wsHandler := service.NewWsService()
+	if wsHandler == nil {
+		initLogger.Fatal().Msg("Error initializing websocket handler")
+	}
+
+	broker := msgbroker.NewMsgBroker(
+		"amqp://"+cfg.RabbitMQ.User+":"+cfg.RabbitMQ.Password+"@"+"rabbitmq"+":"+cfg.RabbitMQ.Port+"/",
+		wsHandler)
 	queue := broker.InitQueue(queueName)
 
-	go broker.RunConsumer(queue.Name)
+	postService := service.BuildPostService(postRepository, postCacheRepository)
 
-	wsHandler := ws.NewWsHandler()
-	postService := service.BuildPostService(postRepository, postCacheRepository, wsHandler)
+	go broker.RunConsumer(queue.Name, postService)
 
 	server := transport.NewServer(
 		dbPool,
 		userService,
 		friendService,
 		postService,
+		broker,
 		wsHandler,
 	)
 

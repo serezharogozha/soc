@@ -50,7 +50,7 @@ func (ps PostService) PublishPostToCache(post domain.Post, friendsOfUser domain.
 	return nil
 }
 
-func (ps PostService) CreatePost(ctx context.Context, post domain.Post) error {
+func (ps PostService) CreatePost(ctx context.Context, post domain.Post) (int, error) {
 	return ps.postRepository.CreatePost(ctx, post)
 }
 

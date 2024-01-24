@@ -26,7 +26,6 @@ type MsgBroker struct {
 
 // NewMsgBroker initializes a new MsgBroker instance
 func NewMsgBroker(connString string, wsHandler *service.WsService) *MsgBroker {
-	fmt.Println(connString)
 	conn, err := amqp.Dial(connString)
 	if err != nil {
 		log.Fatalf("Failed to connect to RabbitMQ: %s", err)
@@ -113,12 +112,19 @@ func (mb *MsgBroker) RunConsumer(queueName string, service service.PostService) 
 			}
 
 			for _, friend := range friends {
-				postJson, err := json.Marshal(post)
+
+				wsMessage := domain.PostWs{
+					PostId:       strconv.Itoa(post.Id),
+					PostText:     post.Text,
+					AuthorUserId: strconv.Itoa(post.UserId),
+				}
+
+				wsMessageJson, err := json.Marshal(wsMessage)
 				if err != nil {
 					fmt.Println(err)
 				}
 
-				err = mb.wsHandler.Publish(strconv.Itoa(friend.Id), postJson)
+				err = mb.wsHandler.Publish(strconv.Itoa(friend.Id), wsMessageJson)
 			}
 		}
 	})
