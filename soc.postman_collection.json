@@ -141,12 +141,12 @@
 				"header": [
 					{
 						"key": "Authorization",
-						"value": "{{auth}}",
+						"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MDU1MjI3MzcsInVzZXJfaWQiOjF9.FZhpNZOzqnkqGZcPN-xoxfvt-depKFbBVnyzDxj9Y6A",
 						"type": "text"
 					}
 				],
 				"url": {
-					"raw": "localhost:8080/friend/set/25570",
+					"raw": "localhost:8080/friend/set/2",
 					"host": [
 						"localhost"
 					],
@@ -154,7 +154,7 @@
 					"path": [
 						"friend",
 						"set",
-						"25570"
+						"2"
 					]
 				}
 			},
@@ -200,7 +200,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"text\": \"heeeoo\",\n    \"user_id\": 27899\n}"
+					"raw": "{\n    \"text\": \"1122231122\",\n    \"user_id\": 1\n}"
 				},
 				"url": {
 					"raw": "localhost:8080/post/create",
@@ -221,6 +221,10 @@
 			"request": {
 				"method": "PUT",
 				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"id\":  1,\n    \"text\": \"1122231122\",\n    \"user_id\": 1\n}"
+				},
 				"url": {
 					"raw": "localhost:8080/post/update",
 					"host": [
