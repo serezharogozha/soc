@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/go-redis/redis"
 	"net/http"
 	"sync"
 
@@ -20,32 +21,25 @@ type WsMessage struct {
 	Event string `json:"event"`
 }
 
-type Client struct {
-	ID   string
-	Conn *websocket.Conn
-}
-
-type SubscriptionMap struct {
-	sync.RWMutex
-	Subscribers map[string]map[string]*Client
-}
-
-type WsService struct {
-	Subscriptions SubscriptionMap
-}
-
-type Message struct {
-	Action  string `json:"action"`
-	Topic   string `json:"topic"`
-	Message string `json:"message"`
-}
-
 var Upgrader = websocket.Upgrader{
 	ReadBufferSize:  readBufferSize,
 	WriteBufferSize: writeBufferSize,
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
+}
+
+type WsService struct {
+	Connections map[string]*websocket.Conn
+	RedisClient *redis.Client
+	mutex       sync.Mutex
+}
+
+func NewWsService(redisClient *redis.Client) *WsService {
+	return &WsService{
+		Connections: make(map[string]*websocket.Conn),
+		RedisClient: redisClient,
+	}
 }
 
 func (s *WsService) Send(conn *websocket.Conn, message string) {
@@ -55,7 +49,41 @@ func (s *WsService) Send(conn *websocket.Conn, message string) {
 	}
 }
 
-func (s *WsService) ProcessMessage(conn *websocket.Conn, clientID string, userId string) {
+func (s *WsService) Subscribe(conn *websocket.Conn, clientID string, userID string) {
+	s.mutex.Lock()
+	s.Connections[clientID] = conn
+	s.mutex.Unlock()
+
+	s.RedisClient.SAdd("subscriptions:"+userID, clientID)
+}
+
+func (s *WsService) Unsubscribe(clientID string, userID string) {
+	s.mutex.Lock()
+	delete(s.Connections, clientID)
+	s.mutex.Unlock()
+
+	s.RedisClient.SRem("subscriptions:"+userID, clientID)
+}
+
+func (s *WsService) Publish(userID string, message []byte) error {
+	clientIDs, err := s.RedisClient.SMembers("subscriptions:" + userID).Result()
+	if err != nil {
+		return err
+	}
+
+	for _, clientID := range clientIDs {
+		s.mutex.Lock()
+		conn, ok := s.Connections[clientID]
+		s.mutex.Unlock()
+		if ok {
+			s.Send(conn, string(message))
+		}
+	}
+
+	return nil
+}
+
+func (s *WsService) ProcessMessage(conn *websocket.Conn, clientID string, userID string) {
 	for {
 		var msg WsMessage
 		err := conn.ReadJSON(&msg)
@@ -67,62 +95,11 @@ func (s *WsService) ProcessMessage(conn *websocket.Conn, clientID string, userId
 
 		switch msg.Event {
 		case subscribe:
-			go s.Subscribe(conn, clientID, userId)
+			go s.Subscribe(conn, clientID, userID)
 		case unsubscribe:
-			go s.Unsubscribe(clientID, userId)
+			go s.Unsubscribe(clientID, userID)
 		default:
 			go s.Send(conn, errActionUnrecognizable)
 		}
-	}
-}
-
-func (s *WsService) Publish(userId string, message []byte) error {
-	s.Subscriptions.RLock()
-	clients, ok := s.Subscriptions.Subscribers[userId]
-	s.Subscriptions.RUnlock()
-
-	if !ok {
-		return nil
-	}
-
-	var wg sync.WaitGroup
-	for _, client := range clients {
-		wg.Add(1)
-		go func(conn *websocket.Conn) {
-			defer wg.Done()
-			if conn != nil {
-				s.Send(conn, string(message))
-			}
-		}(client.Conn)
-	}
-
-	wg.Wait()
-	return nil
-}
-
-func (s *WsService) Subscribe(conn *websocket.Conn, clientID string, userId string) {
-	client := &Client{ID: clientID, Conn: conn}
-
-	s.Subscriptions.Lock()
-	if s.Subscriptions.Subscribers[userId] == nil {
-		s.Subscriptions.Subscribers[userId] = make(map[string]*Client)
-	}
-	s.Subscriptions.Subscribers[userId][clientID] = client
-	s.Subscriptions.Unlock()
-}
-
-func (s *WsService) Unsubscribe(clientID string, userId string) {
-	s.Subscriptions.Lock()
-	if clients, ok := s.Subscriptions.Subscribers[userId]; ok {
-		delete(clients, clientID)
-	}
-	s.Subscriptions.Unlock()
-}
-
-func NewWsService() *WsService {
-	return &WsService{
-		Subscriptions: SubscriptionMap{
-			Subscribers: make(map[string]map[string]*Client),
-		},
 	}
 }

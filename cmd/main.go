@@ -55,7 +55,7 @@ func main() {
 	postRepository := repository.BuildPostRepository(dbPool, dbReplicaPool)
 	postCacheRepository := repository.BuildPostCacheRepository(redisClient)
 
-	wsHandler := service.NewWsService()
+	wsHandler := service.NewWsService(redisClient)
 	if wsHandler == nil {
 		initLogger.Fatal().Msg("Error initializing websocket handler")
 	}
