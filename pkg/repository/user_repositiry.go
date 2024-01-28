@@ -9,19 +9,18 @@ import (
 )
 
 type UserRepository struct {
-	db    *pgxpool.Pool
-	dbRep *pgxpool.Pool
+	db *pgxpool.Pool
 }
 
-func BuildUserRepository(db *pgxpool.Pool, dbRep *pgxpool.Pool) UserRepository {
-	return UserRepository{db: db, dbRep: dbRep}
+func BuildUserRepository(db *pgxpool.Pool) UserRepository {
+	return UserRepository{db: db}
 }
 
 func (u UserRepository) GetUserById(ctx context.Context, userId int) (*domain.User, error) {
 	const query = `SELECT * FROM users WHERE id=$1`
 	user := new(domain.User)
 
-	row := u.dbRep.QueryRow(ctx, query, userId)
+	row := u.db.QueryRow(ctx, query, userId)
 	err := row.Scan(&user.Id, &user.FirstName, &user.LastName, &user.Age, &user.Biography, &user.City, &user.Password)
 
 	if err != nil {
@@ -54,7 +53,7 @@ func (u UserRepository) GetUser(ctx context.Context, userId int) (*domain.User, 
 
 	user := new(domain.User)
 
-	row := u.dbRep.QueryRow(ctx, query, userId)
+	row := u.db.QueryRow(ctx, query, userId)
 	err := row.Scan(&user.Id, &user.FirstName, &user.LastName, &user.Age, &user.Biography, &user.City, &user.Password)
 
 	if err != nil {

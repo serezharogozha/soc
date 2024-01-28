@@ -42,18 +42,20 @@ func main() {
 	}()
 
 	dbPool := datastore.InitDB(cfg.DB, initLogger)
-	dbReplicaPool := datastore.InitDB(cfg.DBRep, initLogger)
 
 	redisClient := datastore.InitRedis(cfg.Redis, initLogger)
 
-	userRepository := repository.BuildUserRepository(dbPool, dbReplicaPool)
+	userRepository := repository.BuildUserRepository(dbPool)
 	userService := service.BuildUserService(userRepository)
 
-	friendRepository := repository.BuildFriendRepository(dbPool, dbReplicaPool)
+	friendRepository := repository.BuildFriendRepository(dbPool)
 	friendService := service.BuildFriendService(friendRepository)
 
-	postRepository := repository.BuildPostRepository(dbPool, dbReplicaPool)
+	postRepository := repository.BuildPostRepository(dbPool)
 	postCacheRepository := repository.BuildPostCacheRepository(redisClient)
+
+	dialogueRepository := repository.BuildDialogueRepository(dbPool)
+	dialogueService := service.BuildDialogueService(dialogueRepository)
 
 	wsHandler := service.NewWsService(redisClient)
 	if wsHandler == nil {
@@ -74,6 +76,7 @@ func main() {
 		userService,
 		friendService,
 		postService,
+		dialogueService,
 		broker,
 		wsHandler,
 	)

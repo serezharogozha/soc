@@ -8,12 +8,11 @@ import (
 )
 
 type PostRepository struct {
-	db    *pgxpool.Pool
-	dbRep *pgxpool.Pool
+	db *pgxpool.Pool
 }
 
-func BuildPostRepository(db *pgxpool.Pool, dbRep *pgxpool.Pool) PostRepository {
-	return PostRepository{db: db, dbRep: dbRep}
+func BuildPostRepository(db *pgxpool.Pool) PostRepository {
+	return PostRepository{db: db}
 }
 
 func (p PostRepository) CreatePost(ctx context.Context, post domain.Post) (int, error) {
@@ -37,7 +36,7 @@ func (p PostRepository) UpdatePost(ctx context.Context, post domain.Post) error 
 }
 
 func (p PostRepository) DeletePost(ctx context.Context, postId int) error {
-	const query = `DELETE FROM posts WHERE id =$ 1`
+	const query = `DELETE FROM posts WHERE id =$1`
 	_, err := p.db.Exec(ctx, query, postId)
 	if err != nil {
 		return err

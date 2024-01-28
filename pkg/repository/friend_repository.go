@@ -10,8 +10,8 @@ type FriendRepository struct {
 	dbRep *pgxpool.Pool
 }
 
-func BuildFriendRepository(db *pgxpool.Pool, dbRep *pgxpool.Pool) FriendRepository {
-	return FriendRepository{db: db, dbRep: dbRep}
+func BuildFriendRepository(db *pgxpool.Pool) FriendRepository {
+	return FriendRepository{db: db}
 }
 
 func (f FriendRepository) SetFriend(ctx context.Context, userId int, friendId int) error {

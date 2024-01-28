@@ -19,13 +19,14 @@ import (
 )
 
 type Server struct {
-	router        *chi.Mux
-	userService   service.UserService
-	friendService service.FriendService
-	postService   service.PostService
-	db            *pgxpool.Pool
-	broker        *msgbroker.MsgBroker
-	wsHandler     *service.WsService
+	router          *chi.Mux
+	userService     service.UserService
+	friendService   service.FriendService
+	postService     service.PostService
+	dialogueService service.DialogueService
+	db              *pgxpool.Pool
+	broker          *msgbroker.MsgBroker
+	wsHandler       *service.WsService
 }
 
 type ErrorResponse struct {
@@ -42,7 +43,15 @@ type UserClaims struct {
 var SigningKey = []byte("my-secret-key")
 var ExpirationTime = 15 * time.Minute
 
-func NewServer(db *pgxpool.Pool, service service.UserService, friendService service.FriendService, postService service.PostService, msgBroker *msgbroker.MsgBroker, wsHandler *service.WsService) Server {
+func NewServer(
+	db *pgxpool.Pool,
+	service service.UserService,
+	friendService service.FriendService,
+	postService service.PostService,
+	dialogueService service.DialogueService,
+	msgBroker *msgbroker.MsgBroker,
+	wsHandler *service.WsService,
+) Server {
 	s := Server{}
 
 	s.router = chi.NewRouter()
@@ -50,8 +59,14 @@ func NewServer(db *pgxpool.Pool, service service.UserService, friendService serv
 	s.broker = msgBroker
 	s.userService = service
 	s.friendService = friendService
+	s.dialogueService = dialogueService
 	s.postService = postService
 	s.wsHandler = wsHandler
+
+	/*
+		Отправка сообщения пользователю (метод /dialog/{user_id}/send из спецификации)
+		Получение диалога между двумя пользователями (метод /dialog/{user_id}/list из спецификации)
+	*/
 
 	s.router.Use(middleware.RequestID)
 	s.router.Use(middleware.Logger)
@@ -62,6 +77,9 @@ func NewServer(db *pgxpool.Pool, service service.UserService, friendService serv
 	s.router.Post("/login", s.Login)              // ok
 	s.router.Post("/user/register", s.CreateUser) // ok
 	s.router.Post("/user/search", s.UserSearch)   // ok
+
+	s.router.With(AuthMiddleware).Post("/dialog/{user_id}/send", s.DialogSend)
+	s.router.With(AuthMiddleware).Get("/dialog/{user_id}/list", s.DialogList)
 
 	s.router.With(AuthMiddleware).Put("/friend/set/{id}", s.FriendSet)       // ok
 	s.router.With(AuthMiddleware).Put("/friend/delete/{id}", s.FriendDelete) // ok
@@ -545,4 +563,88 @@ func (s Server) Login(w http.ResponseWriter, r *http.Request) {
 func (s Server) Start() error {
 	fmt.Println("server started")
 	return http.ListenAndServe(":8080", s.router)
+}
+
+func (s Server) DialogSend(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*UserClaims)
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	userId := claims.UserID
+
+	toUserId := chi.URLParam(r, "user_id")
+	toUserIdInt, _ := strconv.Atoi(toUserId)
+
+	dialogueText := &domain.TextDialogue{}
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&dialogueText); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	err := s.dialogueService.CreateDialogue(ctx, userId, toUserIdInt, dialogueText.Text)
+
+	if err != nil {
+		errorResponse := ErrorResponse{
+			Message:   "Failed to create dialogue",
+			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
+			ErrorCode: http.StatusInternalServerError,
+		}
+		responseJson, _ := json.Marshal(errorResponse)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, errWrite := w.Write(responseJson)
+		if errWrite != nil {
+			return
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s Server) DialogList(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*UserClaims)
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	userId := claims.UserID
+
+	withUserId := chi.URLParam(r, "user_id")
+
+	withUserIdInt, _ := strconv.Atoi(withUserId)
+
+	dialogues, err := s.dialogueService.GetDialogue(ctx, userId, withUserIdInt)
+
+	if err != nil {
+		errorResponse := ErrorResponse{
+			Message:   "Failed to get dialogue",
+			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
+			ErrorCode: http.StatusInternalServerError,
+		}
+		responseJson, _ := json.Marshal(errorResponse)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, errWrite := w.Write(responseJson)
+		if errWrite != nil {
+			return
+		}
+		return
+	}
+
+	dialoguesJson, _ := json.Marshal(dialogues)
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	_, writeErr := w.Write(dialoguesJson)
+	if writeErr != nil {
+		return
+	}
+	return
 }

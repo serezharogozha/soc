@@ -1,26 +1,56 @@
 version: '3'
 services:
-  pg:
-    image: postgres:15.2-alpine
-    environment:
-      POSTGRES_USER: soc_user
-      POSTGRES_PASSWORD:
-      POSTGRES_DB: soc
-      SERVICE_NAME: pg
-      POSTGRES_HOST_AUTH_METHOD: trust
-      POSTGRES_INIT_DB_ARGS: "--locale=ru_RU"
-      PAGER: less
-      TERM: xterm
-    expose:
-      - "5432"
+  etcd:
+    image: bitnami/etcd:latest
     ports:
-      - "5432:5432"
-    volumes:
-      - data:/var/lib/postgresql
+      - "2379:2379"
+    environment:
+      - ALLOW_NONE_AUTHENTICATION=yes
     networks:
       - soc
 
- #
+  citus_coordinator:
+    image: citusdata/citus:latest
+    environment:
+      - POSTGRES_DB=soc
+      - POSTGRES_USER=soc_user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    ports:
+      - "5432:5432"
+    depends_on:
+      - etcd
+    networks:
+      - soc
+
+  citus_worker_1:
+    image: citusdata/citus:latest
+    volumes:
+      - ./.docker/pg_hba.conf:/var/lib/postgresql/data/pg_hba.conf
+    environment:
+      - POSTGRES_DB=soc
+      - POSTGRES_USER=soc_user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    depends_on:
+      - etcd
+    networks:
+      - soc
+
+  citus_worker_2:
+    image: citusdata/citus:latest
+    volumes:
+      - ./.docker/pg_hba.conf:/var/lib/postgresql/data/pg_hba.conf
+    environment:
+      - POSTGRES_DB=soc
+      - POSTGRES_USER=soc_user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    depends_on:
+      - etcd
+    networks:
+      - soc
+
   redis:
     image: redis
     ports:
@@ -33,11 +63,10 @@ services:
       context: .
       dockerfile: .docker/dockerfile
     environment:
-      DB_REPLICA_HOST: pg
-      DB_HOST: pg
+      DB_HOST: citus_coordinator
       DB_CONNECTION: pgsql
       DB_USER: soc_user
-      DB_PASSWORD:
+      DB_PASSWORD: password
       DB_NAME: soc
       DB_PORT: 5432
       REDIS_HOST: redis
@@ -53,7 +82,7 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - pg
+      - citus_coordinator
       - rabbitmq
       - redis
     networks:
