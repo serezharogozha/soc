@@ -14,7 +14,7 @@
   ```
 - выполнить команду ```SELECT create_distributed_table('messages', 'dialogue_id');```
 - выполнив команду ```SELECT master_get_active_worker_nodes(); ``` мы видим два активных воркера
-- далее нужно нагенерировать данные в таблиц dialogues и messages
+- далее нужно нагенерировать данные в таблицы dialogues и messages
 ```
 INSERT INTO dialogues(from_user_id, to_user_id)
     SELECT
@@ -36,7 +36,7 @@ WHERE
         d.rownum <= 300000;
 ```
 - выполнив команду ```EXPLAIN SELECT * FROM messages WHERE dialogue_id = ? limit 10;``` 
-посдтавляя разные значения `dialogue_id` мы видим, что данные распределены по двум воркерам
+посдтавляя разные значения `dialogue_id` мы видим, что данные распределены по двум шардам
 - проверим, что данные равномерно распределены по всем шардам
 ```
 SELECT nodename, count(*)
@@ -53,11 +53,11 @@ FROM citus_shards GROUP BY nodename;
   SELECT run_command_on_workers('alter system set wal_level = logical');
   ```
   после этого перезапустим контейнеры
-- если мы не можем использовать primary Или unique key, то можно использовать 
+- если мы не можем использовать primary или unique key, то можно попробовать использовать REPLICA IDENTITY FULL
 ```ALTER TABLE dialogues REPLICA IDENTITY FULL;```
-    будут включены все колонки, надо быть осторожным, если колонок много, то это может сильно увеличить размер и время репликации
-- теперь нам нужно перераспределить данные по воркерам, для этого выполним команду ```SELECT rebalance_table_shards('dialogues');```
-- следить за выполнение ```SELECT * FROM citus_rebalance_status();```
+    будут включены все колонки. Надо быть осторожным, это может сильно увеличить размер и время репликации
+- теперь нам нужно перераспределить данные по шардам, для этого выполним команду ```SELECT rebalance_table_shards('dialogues');```
+- следить за выполнением ```SELECT * FROM citus_rebalance_status();```
 - проверим, что данные равномерно распределены по всем шардам 
 ```
 SELECT nodename, count(*)
