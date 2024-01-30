@@ -35,8 +35,13 @@ FROM
 WHERE
         d.rownum <= 300000;
 ```
-- выполнив команду ```EXPLAIN SELECT * FROM messages WHERE from_user_id = ? limit 10;``` 
-посдтавляя разные значения `from_user_id` мы видим, что данные распределены по двум воркерам
+- выполнив команду ```EXPLAIN SELECT * FROM messages WHERE dialogue_id = ? limit 10;``` 
+посдтавляя разные значения `dialogue_id` мы видим, что данные распределены по двум воркерам
+- проверим, что данные равномерно распределены по всем шардам
+```
+SELECT nodename, count(*)
+FROM citus_shards GROUP BY nodename;
+```
 - добавим еще пару воркеров в docker-compose скопирова предыдущий 
 -   ```
     SELECT master_add_node('citus_worker_3', 5432);
