@@ -585,7 +585,7 @@ func (s Server) DialogSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.dialogueService.CreateDialogue(ctx, userId, toUserIdInt, dialogueText.Text)
+	err := s.dialogueService.CreateMessages(ctx, userId, toUserIdInt, dialogueText.Text)
 
 	if err != nil {
 		errorResponse := ErrorResponse{
@@ -621,7 +621,6 @@ func (s Server) DialogList(w http.ResponseWriter, r *http.Request) {
 	withUserIdInt, _ := strconv.Atoi(withUserId)
 
 	dialogues, err := s.dialogueService.GetDialogue(ctx, userId, withUserIdInt)
-
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to get dialogue",
@@ -638,7 +637,22 @@ func (s Server) DialogList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dialoguesJson, _ := json.Marshal(dialogues)
+	dialoguesJson, err := json.Marshal(dialogues)
+	if err != nil {
+		errorResponse := ErrorResponse{
+			Message:   "Failed to marshal dialogues",
+			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
+			ErrorCode: http.StatusInternalServerError,
+		}
+		responseJson, _ := json.Marshal(errorResponse)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, errWrite := w.Write(responseJson)
+		if errWrite != nil {
+			return
+		}
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")

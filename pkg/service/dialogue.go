@@ -2,7 +2,8 @@ package service
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"github.com/jackc/pgx/v4"
 	"soc/pkg/domain"
 	"soc/pkg/repository"
 )
@@ -17,14 +18,31 @@ func BuildDialogueService(dialogueRepository repository.DialogueRepository) Dial
 	}
 }
 
-func (ds DialogueService) CreateDialogue(ctx context.Context, from int, to int, message string) error {
-	return ds.dialogueRepository.CreateDialogue(ctx, from, to, message)
+func (ds DialogueService) CreateMessages(ctx context.Context, from int, to int, message string) error {
+	dialogueId, err := ds.dialogueRepository.IsDialogueExist(ctx, from, to)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
+
+	if dialogueId == 0 {
+		dialogueId, err = ds.dialogueRepository.CreateDialogue(ctx, from, to)
+		if err != nil {
+			return err
+		}
+	}
+
+	return ds.dialogueRepository.CreateMessage(ctx, dialogueId, from, to, message)
 }
 
 func (ds DialogueService) GetDialogue(ctx context.Context, userId int, withUserId int) ([]domain.Dialogue, error) {
 	dialogues, err := ds.dialogueRepository.GetDialogue(ctx, userId, withUserId)
-	fmt.Println(dialogues)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+
 		return nil, err
 	}
 
