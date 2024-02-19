@@ -63,30 +63,25 @@ func NewServer(
 	s.postService = postService
 	s.wsHandler = wsHandler
 
-	/*
-		Отправка сообщения пользователю (метод /dialog/{user_id}/send из спецификации)
-		Получение диалога между двумя пользователями (метод /dialog/{user_id}/list из спецификации)
-	*/
-
 	s.router.Use(middleware.RequestID)
 	s.router.Use(middleware.Logger)
 	s.router.Use(middleware.Recoverer)
 
-	s.router.Get("/user/get/{id}", s.GetUser) //ok
+	s.router.Get("/user/get/{id}", s.GetUser)
 
-	s.router.Post("/login", s.Login)              // ok
-	s.router.Post("/user/register", s.CreateUser) // ok
-	s.router.Post("/user/search", s.UserSearch)   // ok
+	s.router.Post("/login", s.Login)
+	s.router.Post("/user/register", s.CreateUser)
+	s.router.Post("/user/search", s.UserSearch)
 
 	s.router.With(AuthMiddleware).Post("/dialog/{user_id}/send", s.DialogSend)
 	s.router.With(AuthMiddleware).Get("/dialog/{user_id}/list", s.DialogList)
 
-	s.router.With(AuthMiddleware).Put("/friend/set/{id}", s.FriendSet)       // ok
-	s.router.With(AuthMiddleware).Put("/friend/delete/{id}", s.FriendDelete) // ok
-	s.router.With(AuthMiddleware).Put("/post/get_feed", s.GetFeed)           // ?????
+	s.router.With(AuthMiddleware).Put("/friend/set/{id}", s.FriendSet)
+	s.router.With(AuthMiddleware).Put("/friend/delete/{id}", s.FriendDelete)
+	s.router.With(AuthMiddleware).Put("/post/get_feed", s.GetFeed)
 
-	s.router.Post("/post/create", s.PostCreate) // ok
-	s.router.Put("/post/update", s.PostUpdate)  // pochti ok
+	s.router.Post("/post/create", s.PostCreate)
+	s.router.Put("/post/update", s.PostUpdate)
 
 	s.router.With(AuthMiddleware).Get("/post/feed/posted", s.HandleWS)
 
@@ -585,7 +580,7 @@ func (s Server) DialogSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.dialogueService.CreateMessages(ctx, userId, toUserIdInt, dialogueText.Text)
+	err := s.dialogueService.CreateMessagesV2(userId, toUserIdInt, dialogueText.Text)
 
 	if err != nil {
 		errorResponse := ErrorResponse{
@@ -620,7 +615,7 @@ func (s Server) DialogList(w http.ResponseWriter, r *http.Request) {
 
 	withUserIdInt, _ := strconv.Atoi(withUserId)
 
-	dialogues, err := s.dialogueService.GetDialogue(ctx, userId, withUserIdInt)
+	dialogues, err := s.dialogueService.GetDialogueV2(userId, withUserIdInt)
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to get dialogue",

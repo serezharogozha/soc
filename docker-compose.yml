@@ -81,6 +81,7 @@ services:
       - citus_coordinator
       - rabbitmq
       - redis
+      - tarantool
     networks:
       - soc
 
@@ -91,6 +92,18 @@ services:
       - "15672:15672"
     volumes:
       - "rabbitmq_data:/var/lib/rabbitmq"
+    networks:
+      - soc
+
+  tarantool:
+    image: tarantool/tarantool:2.8.2
+    ports:
+      - "3301:3301"
+    volumes:
+      - ./.docker/entrypoint/app.lua:/app/app.lua
+    command:
+      - tarantool
+      - /app/app.lua
     networks:
       - soc
 

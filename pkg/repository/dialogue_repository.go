@@ -3,15 +3,20 @@ package repository
 import (
 	"context"
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/tarantool/go-tarantool"
 	"soc/pkg/domain"
 )
 
 type DialogueRepository struct {
-	db *pgxpool.Pool
+	db        *pgxpool.Pool
+	tarantool *tarantool.Connection
 }
 
-func BuildDialogueRepository(db *pgxpool.Pool) DialogueRepository {
-	return DialogueRepository{db: db}
+func BuildDialogueRepository(db *pgxpool.Pool, tarantool *tarantool.Connection) DialogueRepository {
+	return DialogueRepository{
+		db:        db,
+		tarantool: tarantool,
+	}
 }
 
 func (d DialogueRepository) CreateDialogue(ctx context.Context, from int, to int) (int, error) {
@@ -25,9 +30,9 @@ func (d DialogueRepository) CreateDialogue(ctx context.Context, from int, to int
 	return dialogueId, nil
 }
 
-func (d DialogueRepository) CreateMessage(ctx context.Context, dialogue_id int, from int, to int, message string) error {
+func (d DialogueRepository) CreateMessage(ctx context.Context, dialogueId int, from int, to int, message string) error {
 	const query = `INSERT INTO messages (dialogue_id, from_user_id, to_user_id, text) VALUES ($1, $2, $3, $4)`
-	_, err := d.db.Exec(ctx, query, dialogue_id, from, to, message)
+	_, err := d.db.Exec(ctx, query, dialogueId, from, to, message)
 	if err != nil {
 		return err
 	}
@@ -80,4 +85,60 @@ func (d DialogueRepository) IsDialogueExist(ctx context.Context, fromUserId int,
 	}
 
 	return dialogueId, nil
+}
+
+func (d DialogueRepository) CreateDialogueV2(from int, to int) (uint64, error) {
+	result, err := d.tarantool.Call("create_dialogue", []interface{}{from, to})
+
+	if err != nil {
+		return 0, err
+	}
+
+	dialogueId := result.Tuples()[0][0].(uint64)
+
+	return dialogueId, nil
+}
+
+func (d DialogueRepository) CreateMessageV2(dialogueId uint64, from int, to int, message string) error {
+	_, err := d.tarantool.Call("create_message", []interface{}{dialogueId, from, to, message})
+	return err
+}
+
+func (d DialogueRepository) IsDialogueExistV2(fromUserId int, toUserId int) (uint64, error) {
+	result, err := d.tarantool.Call("is_dialogue_exist", []interface{}{fromUserId, toUserId})
+	if err != nil {
+		return 0, err
+	}
+
+	if result.Tuples()[0][0] != nil {
+		dialogueId := result.Tuples()[0][0]
+
+		return dialogueId.(uint64), nil
+	}
+
+	return 0, nil
+}
+
+func (d DialogueRepository) GetDialogueV2(userId int, withUserId int) ([]domain.Dialogue, error) {
+	result, err := d.tarantool.Call("get_dialogue", []interface{}{userId, withUserId})
+	if err != nil {
+		return nil, err
+	}
+
+	dialogues := make([]domain.Dialogue, 0)
+
+	for _, tuple := range result.Tuples() {
+		if tuple[0] == nil {
+			continue
+		}
+
+		dialogue := domain.Dialogue{
+			From: int(tuple[2].(uint64)),
+			To:   int(tuple[3].(uint64)),
+			Text: tuple[4].(string),
+		}
+		dialogues = append(dialogues, dialogue)
+	}
+
+	return dialogues, nil
 }

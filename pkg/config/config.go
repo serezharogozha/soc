@@ -1,9 +1,10 @@
 package config
 
 type Config struct {
-	DB       DbConf
-	Redis    RedisConf
-	RabbitMQ RabbitConf
+	DB        DbConf
+	Redis     RedisConf
+	RabbitMQ  RabbitConf
+	Tarantool TarantoolConfig
 }
 
 func Load() (Config, error) {
@@ -17,14 +18,17 @@ func Load() (Config, error) {
 
 	rabbitConf, err := buildRabbitConf()
 
+	tarantoolConf, err := buildTarantoolConfig()
+
 	if err != nil {
 		return Config{}, err
 	}
 
 	return Config{
-		DB:       dbConf,
-		Redis:    redisConf,
-		RabbitMQ: rabbitConf,
+		DB:        dbConf,
+		Redis:     redisConf,
+		RabbitMQ:  rabbitConf,
+		Tarantool: tarantoolConf,
 	}, nil
 
 }

@@ -45,6 +45,8 @@ func main() {
 
 	redisClient := datastore.InitRedis(cfg.Redis, initLogger)
 
+	tarantoolClient := datastore.InitTarantool(cfg.Tarantool, initLogger)
+
 	userRepository := repository.BuildUserRepository(dbPool)
 	userService := service.BuildUserService(userRepository)
 
@@ -54,7 +56,7 @@ func main() {
 	postRepository := repository.BuildPostRepository(dbPool)
 	postCacheRepository := repository.BuildPostCacheRepository(redisClient)
 
-	dialogueRepository := repository.BuildDialogueRepository(dbPool)
+	dialogueRepository := repository.BuildDialogueRepository(dbPool, tarantoolClient)
 	dialogueService := service.BuildDialogueService(dialogueRepository)
 
 	wsHandler := service.NewWsService(redisClient)
@@ -85,43 +87,4 @@ func main() {
 		fmt.Println("Error starting server: ", err)
 		os.Exit(1)
 	}
-
 }
-
-/*func upload(dbPool *pgxpool.Pool) {
-	file, err := os.Open("./cmd/people.csv")
-	if err != nil {
-		panic(err)
-	}
-	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			fmt.Println(err)
-		}
-	}(file)
-
-	scanner := bufio.NewScanner(file)
-	ctx, cancel := context.WithTimeout(context.Background(), 5000*time.Second)
-	defer cancel()
-
-	counter := 0
-
-	for scanner.Scan() {
-		fields := strings.Split(scanner.Text(), ",")
-		firstLastName := strings.Split(fields[0], " ")
-		firstName := firstLastName[1]
-		lastName := firstLastName[0]
-
-		age := fields[1]
-		hometown := fields[2]
-
-		_, err := dbPool.Exec(ctx, "INSERT INTO users (first_name, second_name, birthdate, city) VALUES ($1, $2, $3, $4)",
-			firstName, lastName, age, hometown)
-		if err != nil {
-			fmt.Printf("Failed to insert user: %s\n", err)
-		} else {
-			counter++
-			fmt.Printf("Inserted user %d\n", counter)
-		}
-	}
-}*/
