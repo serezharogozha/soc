@@ -9,3 +9,9 @@ type Dialogue struct {
 type TextDialogue struct {
 	Text string `json:"text"`
 }
+
+type DialogueMessage struct {
+	UserID   int    `json:"user_id"`
+	ToUserID int    `json:"to_user_id"`
+	Text     string `json:"text"`
+}

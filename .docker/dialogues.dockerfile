@@ -8,7 +8,7 @@ RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate
 
 COPY ./ /app/soc
 
-WORKDIR /app/soc/soc
+WORKDIR /app/soc/dialogues
 
 RUN apk add --no-cache curl nano bash shadow postgresql-client build-base ca-certificates pkgconfig openssl-dev
 

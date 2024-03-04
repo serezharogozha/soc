@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/valyala/fasthttp"
+	"io/ioutil"
 	"net/http"
 	"soc/pkg/domain"
 	"soc/pkg/service"
@@ -19,14 +21,13 @@ import (
 )
 
 type Server struct {
-	router          *chi.Mux
-	userService     service.UserService
-	friendService   service.FriendService
-	postService     service.PostService
-	dialogueService service.DialogueService
-	db              *pgxpool.Pool
-	broker          *msgbroker.MsgBroker
-	wsHandler       *service.WsService
+	router        *chi.Mux
+	userService   service.UserService
+	friendService service.FriendService
+	postService   service.PostService
+	db            *pgxpool.Pool
+	broker        *msgbroker.MsgBroker
+	wsHandler     *service.WsService
 }
 
 type ErrorResponse struct {
@@ -48,7 +49,6 @@ func NewServer(
 	service service.UserService,
 	friendService service.FriendService,
 	postService service.PostService,
-	dialogueService service.DialogueService,
 	msgBroker *msgbroker.MsgBroker,
 	wsHandler *service.WsService,
 ) Server {
@@ -59,7 +59,6 @@ func NewServer(
 	s.broker = msgBroker
 	s.userService = service
 	s.friendService = friendService
-	s.dialogueService = dialogueService
 	s.postService = postService
 	s.wsHandler = wsHandler
 
@@ -568,34 +567,108 @@ func (s Server) DialogSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	reqId := middleware.GetReqID(ctx)
 	userId := claims.UserID
 
 	toUserId := chi.URLParam(r, "user_id")
 	toUserIdInt, _ := strconv.Atoi(toUserId)
 
-	dialogueText := &domain.TextDialogue{}
+	dialogueText := &domain.DialogueMessage{}
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&dialogueText); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	err := s.dialogueService.CreateMessagesV2(userId, toUserIdInt, dialogueText.Text)
+	message := domain.DialogueMessage{
+		UserID:   userId,
+		ToUserID: toUserIdInt,
+		Text:     dialogueText.Text,
+	}
 
+	messageBody, err := json.Marshal(message)
 	if err != nil {
 		errorResponse := ErrorResponse{
-			Message:   "Failed to create dialogue",
-			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
-			ErrorCode: http.StatusInternalServerError,
+			Message:   "Failed to encode response",
+			RequestID: reqId,
+			ErrorCode: fasthttp.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_, errWrite := w.Write(responseJson)
 		if errWrite != nil {
 			return
 		}
+
 		return
+	}
+
+	req, err := http.NewRequest("POST", "http://dialogues_app:8081/dialog/{user_id}/send", bytes.NewBuffer(messageBody))
+
+	if err != nil {
+		errorResponse := ErrorResponse{
+			Message:   "Failed to encode response",
+			RequestID: reqId,
+			ErrorCode: fasthttp.StatusInternalServerError,
+		}
+		responseJson, _ := json.Marshal(errorResponse)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, errWrite := w.Write(responseJson)
+		if errWrite != nil {
+			return
+		}
+
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Add("X-Request-ID", reqId)
+
+	// Send the HTTP request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		errorResponse := ErrorResponse{
+			Message:   "Failed to encode response",
+			RequestID: reqId,
+			ErrorCode: fasthttp.StatusInternalServerError,
+		}
+		responseJson, _ := json.Marshal(errorResponse)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, errWrite := w.Write(responseJson)
+		if errWrite != nil {
+			return
+		}
+
+		return
+	}
+	defer resp.Body.Close()
+
+	statusCodes := []int{http.StatusInternalServerError, http.StatusBadRequest}
+
+	for _, code := range statusCodes {
+		if resp.StatusCode == code {
+			errorResponse := ErrorResponse{
+				Message:   "Failed to perform request",
+				RequestID: reqId,
+				ErrorCode: resp.StatusCode,
+			}
+			responseJson, _ := json.Marshal(errorResponse)
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(resp.StatusCode)
+			_, errWrite := w.Write(responseJson)
+			if errWrite != nil {
+				return
+			}
+
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -610,36 +683,84 @@ func (s Server) DialogList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userId := claims.UserID
+	userIdStr := strconv.Itoa(userId)
 
 	withUserId := chi.URLParam(r, "user_id")
+	reqId := middleware.GetReqID(ctx)
 
-	withUserIdInt, _ := strconv.Atoi(withUserId)
-
-	dialogues, err := s.dialogueService.GetDialogueV2(userId, withUserIdInt)
+	req, err := http.NewRequest("GET", "http://dialogues_app:8081/dialog/list/"+userIdStr+":"+withUserId, nil)
+	req.Header.Add("X-Request-ID", reqId)
 	if err != nil {
 		errorResponse := ErrorResponse{
-			Message:   "Failed to get dialogue",
-			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
-			ErrorCode: http.StatusInternalServerError,
+			Message:   "Failed to encode response",
+			RequestID: reqId,
+			ErrorCode: fasthttp.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_, errWrite := w.Write(responseJson)
 		if errWrite != nil {
 			return
 		}
+
 		return
 	}
 
-	dialoguesJson, err := json.Marshal(dialogues)
+	// Send the HTTP request
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		errorResponse := ErrorResponse{
-			Message:   "Failed to marshal dialogues",
-			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
-			ErrorCode: http.StatusInternalServerError,
+			Message:   "Failed to encode response",
+			RequestID: reqId,
+			ErrorCode: fasthttp.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, errWrite := w.Write(responseJson)
+		if errWrite != nil {
+			return
+		}
+
+		return
+	}
+	defer resp.Body.Close()
+
+	statusCodes := []int{http.StatusInternalServerError, http.StatusBadRequest}
+
+	for _, code := range statusCodes {
+		if resp.StatusCode == code {
+			errorResponse := ErrorResponse{
+				Message:   "Failed to perform request",
+				RequestID: reqId,
+				ErrorCode: resp.StatusCode,
+			}
+			responseJson, _ := json.Marshal(errorResponse)
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(resp.StatusCode)
+			_, errWrite := w.Write(responseJson)
+			if errWrite != nil {
+				return
+			}
+
+			return
+		}
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		errorResponse := ErrorResponse{
+			Message:   "Failed to encode response",
+			RequestID: reqId,
+			ErrorCode: fasthttp.StatusInternalServerError,
+		}
+		responseJson, _ := json.Marshal(errorResponse)
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_, errWrite := w.Write(responseJson)
@@ -651,9 +772,8 @@ func (s Server) DialogList(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
-	_, writeErr := w.Write(dialoguesJson)
-	if writeErr != nil {
+	_, err = w.Write(body)
+	if err != nil {
 		return
 	}
-	return
 }

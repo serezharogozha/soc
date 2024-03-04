@@ -45,8 +45,6 @@ func main() {
 
 	redisClient := datastore.InitRedis(cfg.Redis, initLogger)
 
-	tarantoolClient := datastore.InitTarantool(cfg.Tarantool, initLogger)
-
 	userRepository := repository.BuildUserRepository(dbPool)
 	userService := service.BuildUserService(userRepository)
 
@@ -55,9 +53,6 @@ func main() {
 
 	postRepository := repository.BuildPostRepository(dbPool)
 	postCacheRepository := repository.BuildPostCacheRepository(redisClient)
-
-	dialogueRepository := repository.BuildDialogueRepository(dbPool, tarantoolClient)
-	dialogueService := service.BuildDialogueService(dialogueRepository)
 
 	wsHandler := service.NewWsService(redisClient)
 	if wsHandler == nil {
@@ -78,7 +73,6 @@ func main() {
 		userService,
 		friendService,
 		postService,
-		dialogueService,
 		broker,
 		wsHandler,
 	)

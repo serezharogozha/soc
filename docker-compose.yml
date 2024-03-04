@@ -85,6 +85,21 @@ services:
     networks:
       - soc
 
+  dialogues_app:
+    build:
+      context: .
+      dockerfile: .docker/dialogues.dockerfile
+    volumes:
+      - ./:/app/soc:delegated
+      - ./.docker/entrypoint/dialogues.sh:/dialogues.sh:ro
+    entrypoint: /dialogues.sh
+    ports:
+      - "8081:8081"
+    depends_on:
+      - tarantool
+    networks:
+      - soc
+
   rabbitmq:
     image: rabbitmq:3.11-management-alpine
     ports:
