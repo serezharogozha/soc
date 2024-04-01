@@ -74,6 +74,7 @@ func NewServer(
 
 	s.router.With(AuthMiddleware).Post("/dialog/{user_id}/send", s.DialogSend)
 	s.router.With(AuthMiddleware).Get("/dialog/{user_id}/list", s.DialogList)
+	s.router.With(AuthMiddleware).Get("/dialog/{user_id}/unread_counter", s.DialogUnreadCounter)
 
 	s.router.With(AuthMiddleware).Put("/friend/set/{id}", s.FriendSet)
 	s.router.With(AuthMiddleware).Put("/friend/delete/{id}", s.FriendDelete)
@@ -605,7 +606,7 @@ func (s Server) DialogSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", "http://dialogues_app:8081/dialog/{user_id}/send", bytes.NewBuffer(messageBody))
+	req, err := http.NewRequest("POST", "http://dialogues_app:8081/dialog/"+toUserId+"/send", bytes.NewBuffer(messageBody))
 
 	if err != nil {
 		errorResponse := ErrorResponse{
@@ -689,6 +690,110 @@ func (s Server) DialogList(w http.ResponseWriter, r *http.Request) {
 	reqId := middleware.GetReqID(ctx)
 
 	req, err := http.NewRequest("GET", "http://dialogues_app:8081/dialog/list/"+userIdStr+":"+withUserId, nil)
+	req.Header.Add("X-Request-ID", reqId)
+	if err != nil {
+		errorResponse := ErrorResponse{
+			Message:   "Failed to encode response",
+			RequestID: reqId,
+			ErrorCode: fasthttp.StatusInternalServerError,
+		}
+		responseJson, _ := json.Marshal(errorResponse)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, errWrite := w.Write(responseJson)
+		if errWrite != nil {
+			return
+		}
+
+		return
+	}
+
+	// Send the HTTP request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		errorResponse := ErrorResponse{
+			Message:   "Failed to encode response",
+			RequestID: reqId,
+			ErrorCode: fasthttp.StatusInternalServerError,
+		}
+		responseJson, _ := json.Marshal(errorResponse)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, errWrite := w.Write(responseJson)
+		if errWrite != nil {
+			return
+		}
+
+		return
+	}
+	defer resp.Body.Close()
+
+	statusCodes := []int{http.StatusInternalServerError, http.StatusBadRequest}
+
+	for _, code := range statusCodes {
+		if resp.StatusCode == code {
+			errorResponse := ErrorResponse{
+				Message:   "Failed to perform request",
+				RequestID: reqId,
+				ErrorCode: resp.StatusCode,
+			}
+			responseJson, _ := json.Marshal(errorResponse)
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(resp.StatusCode)
+			_, errWrite := w.Write(responseJson)
+			if errWrite != nil {
+				return
+			}
+
+			return
+		}
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		errorResponse := ErrorResponse{
+			Message:   "Failed to encode response",
+			RequestID: reqId,
+			ErrorCode: fasthttp.StatusInternalServerError,
+		}
+		responseJson, _ := json.Marshal(errorResponse)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, errWrite := w.Write(responseJson)
+		if errWrite != nil {
+			return
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	_, err = w.Write(body)
+	if err != nil {
+		return
+	}
+}
+
+func (s Server) DialogUnreadCounter(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*UserClaims)
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	userId := claims.UserID
+	userIdStr := strconv.Itoa(userId)
+
+	withUserId := chi.URLParam(r, "user_id")
+	reqId := middleware.GetReqID(ctx)
+
+	req, err := http.NewRequest("GET", "http://counter_app:8082/counter/"+userIdStr+":"+withUserId, nil)
 	req.Header.Add("X-Request-ID", reqId)
 	if err != nil {
 		errorResponse := ErrorResponse{

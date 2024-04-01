@@ -3,7 +3,6 @@ package service
 import (
 	"dialogues/pkg/domain"
 	"dialogues/pkg/repository"
-	"fmt"
 )
 
 type DialogueService struct {
@@ -19,7 +18,6 @@ func BuildDialogueService(dialogueRepository repository.DialogueRepository) Dial
 func (ds DialogueService) CreateMessages(from int, to int, message string) error {
 	dialogueId, err := ds.dialogueRepository.IsDialogueExist(from, to)
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 
@@ -38,11 +36,21 @@ func (ds DialogueService) CreateMessages(from int, to int, message string) error
 	return nil
 }
 
-func (ds DialogueService) GetDialogue(userId int, withUserId int) ([]domain.Dialogue, error) {
+func (ds DialogueService) GetDialogue(userId int, withUserId int) ([]domain.Dialogue, uint64, error) {
 	dialogues, err := ds.dialogueRepository.GetDialogue(userId, withUserId)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return dialogues, nil
+	readCounter, err := ds.dialogueRepository.ReadMessages(userId, withUserId)
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return dialogues, readCounter, nil
+}
+
+func (ds DialogueService) UndoDecrement(userId int, withUserId int, count uint64) {
+	ds.dialogueRepository.UnreadMessages(userId, withUserId, count)
 }

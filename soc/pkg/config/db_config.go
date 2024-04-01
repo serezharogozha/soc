@@ -46,14 +46,6 @@ func buildDBConfig() (DbConf, error) {
 		return DbConf{}, fmt.Errorf("DB_NAME is not set")
 	}
 
-	fmt.Println(DbConf{
-		Host:     dbHost,
-		Port:     dbPort,
-		User:     dbUser,
-		Password: dbPassword,
-		Dbname:   dbName,
-	})
-
 	return DbConf{
 		Host:     dbHost,
 		Port:     dbPort,

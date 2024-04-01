@@ -3,10 +3,12 @@ package transport
 import (
 	"dialogues/pkg/domain"
 	"dialogues/pkg/service"
+	"dialogues/pkg/service/msgbroker"
 	"encoding/json"
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/middleware"
 	"net/http"
 	"strconv"
 	"time"
@@ -15,6 +17,7 @@ import (
 type Server struct {
 	router          *chi.Mux
 	dialogueService service.DialogueService
+	broker          *msgbroker.MsgBroker
 }
 
 type ErrorResponse struct {
@@ -33,11 +36,18 @@ var ExpirationTime = 15 * time.Minute
 
 func NewServer(
 	dialogueService service.DialogueService,
+	broker *msgbroker.MsgBroker,
 ) Server {
 	s := Server{}
+	s.dialogueService = dialogueService
+	s.broker = broker
 
 	s.router = chi.NewRouter()
 	s.dialogueService = dialogueService
+
+	s.router.Use(middleware.RequestID)
+	s.router.Use(middleware.Logger)
+	s.router.Use(middleware.Recoverer)
 
 	s.router.Post("/dialog/{user_id}/send", s.DialogSend)
 	s.router.Get("/dialog/list/{user_id}:{withUserId}", s.DialogList)
@@ -52,6 +62,8 @@ func (s Server) Start() error {
 
 func (s Server) DialogSend(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+
+	reqId := middleware.GetReqID(ctx)
 	dialogue := &domain.DialogueMessage{}
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&dialogue); err != nil {
@@ -64,7 +76,7 @@ func (s Server) DialogSend(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to create dialogue",
-			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
+			RequestID: reqId,
 			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
@@ -77,22 +89,40 @@ func (s Server) DialogSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	go func() {
+		messageSend := domain.MessageSendBroker{
+			From: dialogue.UserID,
+			To:   dialogue.ToUserID,
+		}
+
+		messageBody, err := json.Marshal(messageSend)
+		if err != nil {
+			return
+		}
+
+		err = s.broker.Publish("message_send", string(messageBody))
+		if err != nil {
+			return
+		}
+	}()
+
 	w.WriteHeader(http.StatusOK)
 }
 
 func (s Server) DialogList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	reqId := middleware.GetReqID(ctx)
 	userId := chi.URLParam(r, "user_id")
 	withUserId := chi.URLParam(r, "withUserId")
 
 	userIdSrt, _ := strconv.Atoi(userId)
 	withUserIdInt, _ := strconv.Atoi(withUserId)
 
-	dialogues, err := s.dialogueService.GetDialogue(userIdSrt, withUserIdInt)
+	dialogues, counter, err := s.dialogueService.GetDialogue(userIdSrt, withUserIdInt)
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to get dialogue",
-			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
+			RequestID: reqId,
 			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
@@ -109,7 +139,7 @@ func (s Server) DialogList(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errorResponse := ErrorResponse{
 			Message:   "Failed to marshal dialogues",
-			RequestID: strconv.FormatUint(ctx.Value("request_id").(uint64), 10),
+			RequestID: reqId,
 			ErrorCode: http.StatusInternalServerError,
 		}
 		responseJson, _ := json.Marshal(errorResponse)
@@ -121,6 +151,23 @@ func (s Server) DialogList(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
+	go func() {
+		messagesRead := domain.MessageReadBroker{
+			From:        userIdSrt,
+			To:          withUserIdInt,
+			ReadCounter: counter,
+		}
+		messageBody, err := json.Marshal(messagesRead)
+		if err != nil {
+			return
+		}
+
+		err = s.broker.Publish("message_read", string(messageBody))
+		if err != nil {
+			return
+		}
+	}()
 
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")

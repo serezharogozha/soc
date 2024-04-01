@@ -1,12 +1,12 @@
 package msgbroker
 
 import (
+	"dialogues/pkg/domain"
+	"dialogues/pkg/service"
 	"encoding/json"
+	"fmt"
 	"github.com/streadway/amqp"
 	"log"
-	"soc/pkg/domain"
-	"soc/pkg/service"
-	"strconv"
 	"sync"
 )
 
@@ -17,14 +17,14 @@ type WaitGroupWrapper struct {
 
 // MsgBroker represents a message broker service
 type MsgBroker struct {
-	conn      *amqp.Connection
-	ch        *amqp.Channel
-	wg        WaitGroupWrapper
-	wsHandler *service.WsService
+	conn            *amqp.Connection
+	ch              *amqp.Channel
+	dialogueService *service.DialogueService
+	wg              WaitGroupWrapper
 }
 
 // NewMsgBroker initializes a new MsgBroker instance
-func NewMsgBroker(connString string, wsHandler *service.WsService) *MsgBroker {
+func NewMsgBroker(connString string, dialogueService *service.DialogueService) *MsgBroker {
 	conn, err := amqp.Dial(connString)
 	if err != nil {
 		log.Fatalf("Failed to connect to RabbitMQ: %s", err)
@@ -36,9 +36,9 @@ func NewMsgBroker(connString string, wsHandler *service.WsService) *MsgBroker {
 	}
 
 	return &MsgBroker{
-		conn:      conn,
-		ch:        ch,
-		wsHandler: wsHandler,
+		conn:            conn,
+		ch:              ch,
+		dialogueService: dialogueService,
 	}
 }
 
@@ -78,7 +78,7 @@ func (mb *MsgBroker) Publish(queueName string, message string) error {
 }
 
 // RunConsumer runs the message consumer
-func (mb *MsgBroker) RunConsumer(queueName string, service service.PostService) {
+func (mb *MsgBroker) RunErrorIncrementConsumer(queueName string) {
 	msgs, err := mb.ch.Consume(
 		queueName,
 		"",
@@ -94,37 +94,14 @@ func (mb *MsgBroker) RunConsumer(queueName string, service service.PostService) 
 
 	mb.wg.Wrap(func() {
 		for d := range msgs {
-			post := domain.Post{}
-			err := json.Unmarshal(d.Body, &post)
+			fmt.Printf("Received a message: %s\n", d.Body)
+			unreadMessage := domain.MessageReadBroker{}
+			err := json.Unmarshal(d.Body, &unreadMessage)
 			if err != nil {
-				return
+				log.Println("")
 			}
 
-			friends, err := service.GetFriendToPublish(post)
-			if err != nil {
-				return
-			}
-
-			err = service.PublishPostToCache(post, friends)
-			if err != nil {
-				return
-			}
-
-			for _, friend := range friends {
-
-				wsMessage := domain.PostWs{
-					PostId:       strconv.Itoa(post.Id),
-					PostText:     post.Text,
-					AuthorUserId: strconv.Itoa(post.UserId),
-				}
-
-				wsMessageJson, err := json.Marshal(wsMessage)
-				if err != nil {
-					return
-				}
-
-				err = mb.wsHandler.Publish(strconv.Itoa(friend.Id), wsMessageJson)
-			}
+			mb.dialogueService.UndoDecrement(unreadMessage.From, unreadMessage.To, unreadMessage.ReadCounter)
 		}
 	})
 }

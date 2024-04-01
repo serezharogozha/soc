@@ -1,12 +1,11 @@
 package msgbroker
 
 import (
+	"counter/pkg/domain"
+	"counter/pkg/service"
 	"encoding/json"
 	"github.com/streadway/amqp"
 	"log"
-	"soc/pkg/domain"
-	"soc/pkg/service"
-	"strconv"
 	"sync"
 )
 
@@ -17,14 +16,14 @@ type WaitGroupWrapper struct {
 
 // MsgBroker represents a message broker service
 type MsgBroker struct {
-	conn      *amqp.Connection
-	ch        *amqp.Channel
-	wg        WaitGroupWrapper
-	wsHandler *service.WsService
+	conn           *amqp.Connection
+	ch             *amqp.Channel
+	counterService *service.CounterService
+	wg             WaitGroupWrapper
 }
 
 // NewMsgBroker initializes a new MsgBroker instance
-func NewMsgBroker(connString string, wsHandler *service.WsService) *MsgBroker {
+func NewMsgBroker(connString string, counterService *service.CounterService) *MsgBroker {
 	conn, err := amqp.Dial(connString)
 	if err != nil {
 		log.Fatalf("Failed to connect to RabbitMQ: %s", err)
@@ -36,9 +35,9 @@ func NewMsgBroker(connString string, wsHandler *service.WsService) *MsgBroker {
 	}
 
 	return &MsgBroker{
-		conn:      conn,
-		ch:        ch,
-		wsHandler: wsHandler,
+		conn:           conn,
+		ch:             ch,
+		counterService: counterService,
 	}
 }
 
@@ -77,8 +76,8 @@ func (mb *MsgBroker) Publish(queueName string, message string) error {
 	return nil
 }
 
-// RunConsumer runs the message consumer
-func (mb *MsgBroker) RunConsumer(queueName string, service service.PostService) {
+// RunSendConsumer runs the send message consumer
+func (mb *MsgBroker) RunSendConsumer(queueName string) {
 	msgs, err := mb.ch.Consume(
 		queueName,
 		"",
@@ -94,36 +93,55 @@ func (mb *MsgBroker) RunConsumer(queueName string, service service.PostService) 
 
 	mb.wg.Wrap(func() {
 		for d := range msgs {
-			post := domain.Post{}
-			err := json.Unmarshal(d.Body, &post)
+			log.Printf("Received a message: %s", d.Body)
+			sendMessage := domain.MessageSendBroker{}
+			err := json.Unmarshal(d.Body, &sendMessage)
 			if err != nil {
 				return
 			}
 
-			friends, err := service.GetFriendToPublish(post)
+			err = mb.counterService.IncrementCounter(sendMessage.To, sendMessage.From)
 			if err != nil {
 				return
 			}
+		}
+	})
+}
 
-			err = service.PublishPostToCache(post, friends)
+// RunReadConsumer runs the read message consumer
+func (mb *MsgBroker) RunReadConsumer(queueName string) {
+	msgs, err := mb.ch.Consume(
+		queueName,
+		"",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Fatalf("Failed to register a consumer: %s", err)
+	}
+
+	mb.wg.Wrap(func() {
+		for d := range msgs {
+			log.Printf("Received a message: %s", d.Body)
+			readMessage := domain.MessageReadBroker{}
+			err := json.Unmarshal(d.Body, &readMessage)
+
 			if err != nil {
-				return
-			}
-
-			for _, friend := range friends {
-
-				wsMessage := domain.PostWs{
-					PostId:       strconv.Itoa(post.Id),
-					PostText:     post.Text,
-					AuthorUserId: strconv.Itoa(post.UserId),
-				}
-
-				wsMessageJson, err := json.Marshal(wsMessage)
+				err := mb.Publish("message_read_decrement_error", string(d.Body))
 				if err != nil {
 					return
 				}
+			}
 
-				err = mb.wsHandler.Publish(strconv.Itoa(friend.Id), wsMessageJson)
+			err = mb.counterService.DecrementCounter(readMessage.To, readMessage.From, readMessage.ReadCounter)
+			if err != nil {
+				err := mb.Publish("message_read_decrement_error", string(d.Body))
+				if err != nil {
+					return
+				}
 			}
 		}
 	})

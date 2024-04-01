@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	"dialogues/pkg/config"
-	"dialogues/pkg/infrastructure/datastore"
-	"dialogues/pkg/infrastructure/log"
-	"dialogues/pkg/repository"
-	"dialogues/pkg/service"
-	"dialogues/pkg/service/msgbroker"
-	"dialogues/pkg/transport"
+	"counter/pkg/config"
+	"counter/pkg/infrastructure/datastore"
+	"counter/pkg/infrastructure/log"
+	"counter/pkg/repository"
+	"counter/pkg/service"
+	"counter/pkg/service/msgbroker"
+	"counter/pkg/transport"
 	"fmt"
 	"os"
 	"os/signal"
@@ -41,19 +41,20 @@ func main() {
 
 	tarantoolClient := datastore.InitTarantool(cfg.Tarantool, initLogger)
 
-	dialogueRepository := repository.BuildDialogueRepository(tarantoolClient)
-	dialogueService := service.BuildDialogueService(dialogueRepository)
+	counterRepository := repository.BuildCounterRepository(tarantoolClient)
+	counterService := service.BuildCounterService(counterRepository)
 
 	broker := msgbroker.NewMsgBroker(
-		"amqp://"+cfg.RabbitMq.User+":"+cfg.RabbitMq.Password+"@"+"rabbitmq"+":"+cfg.RabbitMq.Port+"/", &dialogueService)
-	_ = broker.InitQueue("message_send")
-	_ = broker.InitQueue("message_read")
-	messageSentIncrementErrorQueue := broker.InitQueue("message_read_decrement_error")
+		"amqp://"+cfg.RabbitMq.User+":"+cfg.RabbitMq.Password+"@"+"rabbitmq"+":"+cfg.RabbitMq.Port+"/", &counterService)
+	sendQueue := broker.InitQueue("message_send")
+	readQueue := broker.InitQueue("message_read")
+	broker.InitQueue("message_send_increment_error")
 
-	go broker.RunErrorIncrementConsumer(messageSentIncrementErrorQueue.Name)
+	go broker.RunSendConsumer(sendQueue.Name)
+	go broker.RunReadConsumer(readQueue.Name)
 
 	server := transport.NewServer(
-		dialogueService,
+		counterService,
 		broker,
 	)
 

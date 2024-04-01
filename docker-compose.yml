@@ -81,7 +81,6 @@ services:
       - citus_coordinator
       - rabbitmq
       - redis
-      - tarantool
     networks:
       - soc
 
@@ -89,6 +88,11 @@ services:
     build:
       context: .
       dockerfile: .docker/dialogues.dockerfile
+    environment:
+      RABBIT_HOST: rabbitmq
+      RABBIT_PORT: 5672
+      RABBIT_USER: guest
+      RABBIT_PASSWORD: guest
     volumes:
       - ./:/app/soc:delegated
       - ./.docker/entrypoint/dialogues.sh:/dialogues.sh:ro
@@ -97,6 +101,27 @@ services:
       - "8081:8081"
     depends_on:
       - tarantool
+    networks:
+      - soc
+
+  counter_app:
+    build:
+      context: .
+      dockerfile: .docker/counter.dockerfile
+    environment:
+      RABBIT_HOST: rabbitmq
+      RABBIT_PORT: 5672
+      RABBIT_USER: guest
+      RABBIT_PASSWORD: guest
+    volumes:
+      - ./:/app/soc:delegated
+      - ./.docker/entrypoint/counter.sh:/counter.sh:ro
+    entrypoint: /counter.sh
+    ports:
+      - "8082:8082"
+    depends_on:
+      - tarantool_counter
+      - rabbitmq
     networks:
       - soc
 
@@ -119,6 +144,18 @@ services:
     command:
       - tarantool
       - /app/app.lua
+    networks:
+      - soc
+
+  tarantool_counter:
+    image: tarantool/tarantool:2.8.2
+    ports:
+      - "3302:3302"
+    volumes:
+      - ./.docker/entrypoint/counter.lua:/app/counter.lua
+    command:
+      - tarantool
+      - /app/counter.lua
     networks:
       - soc
 

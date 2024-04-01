@@ -8,11 +8,8 @@ type Config struct {
 func Load() (Config, error) {
 	tarantoolConf, err := buildTarantoolConfig()
 
-	if err != nil {
-		return Config{}, err
-	}
-
 	rabbitConf, err := buildRabbitConf()
+
 	if err != nil {
 		return Config{}, err
 	}
