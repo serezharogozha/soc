@@ -52,9 +52,12 @@ func main() {
 
 	go broker.RunErrorIncrementConsumer(messageSentIncrementErrorQueue.Name)
 
+	metrics := transport.InitMetrics(initLogger)
+
 	server := transport.NewServer(
 		dialogueService,
 		broker,
+		metrics,
 	)
 
 	if err := server.Start(); err != nil {

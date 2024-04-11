@@ -17,6 +17,7 @@ ENV PKG_CONFIG_PATH /usr/lib/ssl
 RUN mkdir /.cache
 RUN chown nobody:nobody -R /.cache
 RUN chown nobody:nobody -R /go/pkg
+RUN chown nobody:nobody -R /go/pkg/mod
 
 RUN go mod download
 

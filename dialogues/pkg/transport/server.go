@@ -9,15 +9,16 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
 	"strconv"
-	"time"
 )
 
 type Server struct {
 	router          *chi.Mux
 	dialogueService service.DialogueService
 	broker          *msgbroker.MsgBroker
+	metrics         *Metrics
 }
 
 type ErrorResponse struct {
@@ -31,12 +32,10 @@ type UserClaims struct {
 	jwt.StandardClaims
 }
 
-var SigningKey = []byte("my-secret-key")
-var ExpirationTime = 15 * time.Minute
-
 func NewServer(
 	dialogueService service.DialogueService,
 	broker *msgbroker.MsgBroker,
+	metrics *Metrics,
 ) Server {
 	s := Server{}
 	s.dialogueService = dialogueService
@@ -44,13 +43,19 @@ func NewServer(
 
 	s.router = chi.NewRouter()
 	s.dialogueService = dialogueService
+	s.metrics = metrics
 
 	s.router.Use(middleware.RequestID)
 	s.router.Use(middleware.Logger)
 	s.router.Use(middleware.Recoverer)
+	s.router.Use(metrics.CommonMetricsMiddleware)
+
+	s.router.Handle("/metrics", promhttp.Handler())
 
 	s.router.Post("/dialog/{user_id}/send", s.DialogSend)
 	s.router.Get("/dialog/list/{user_id}:{withUserId}", s.DialogList)
+
+	s.router.Handle("/metrics", promhttp.Handler())
 
 	return s
 }

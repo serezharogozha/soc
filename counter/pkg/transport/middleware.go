@@ -1,58 +1,76 @@
 package transport
 
 import (
-	"context"
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/rs/zerolog"
 	"net/http"
+	"regexp"
+	"runtime/debug"
+	"strconv"
+	"strings"
 	"time"
 )
 
-func AuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-
-		if authHeader == "" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		tokenString := authHeader[7:]
-		token, err := jwt.ParseWithClaims(tokenString, &UserClaims{}, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return SigningKey, nil
-		})
-
-		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		if !token.Valid {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		claims := token.Claims.(*UserClaims)
-
-		ctx := context.WithValue(r.Context(), "claims", claims)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
 }
 
-func generateToken(username int) (string, error) {
-	token := jwt.New(jwt.SigningMethodHS256)
+// Metrics - metrics type
+type Metrics struct {
+	reqDuration *prometheus.HistogramVec
+	reqTotal    *prometheus.CounterVec
+	log         *zerolog.Logger
+}
 
-	claims := token.Claims.(jwt.MapClaims)
-	claims["user_id"] = username
-	claims["exp"] = time.Now().Add(ExpirationTime).Unix()
+// InitMetrics - metrics initialize
+func InitMetrics(logger *zerolog.Logger) *Metrics {
+	return &Metrics{
+		reqDuration: promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Help:    "request execution time in milliseconds",
+				Name:    "counter_http_req_duration_ms",
+				Buckets: []float64{1, 3, 5, 7, 9, 12, 15},
+			},
+			[]string{"endpoint"},
+		),
+		log: logger,
+		reqTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+			Help: "total requests to http api",
+			Name: "counter_http_req_count",
+		}, []string{"endpoint", "status"}),
+	}
+}
 
-	signedToken, err := token.SignedString(SigningKey)
-	if err != nil {
-		return "", err
+func (m *Metrics) CommonMetricsMiddleware(next http.Handler) http.Handler {
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		method := strings.ToLower(r.Method)
+
+		path := r.URL.Path
+
+		var re = regexp.MustCompile(`/(\d+)`)
+		path = re.ReplaceAllString(path, `/id`)
+		path = strings.ReplaceAll(path, "/", "_")
+
+		label := fmt.Sprintf("%s%s", method, path)
+
+		defer func() {
+			if r := recover(); r != nil {
+				m.log.Error().Str("panic", "true").Str("stacktrace", string(debug.Stack())).Str("endpoint", label).Msg(fmt.Sprintf("%s", r))
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+		}()
+
+		start := time.Now()
+		next.ServeHTTP(rw, r)
+
+		m.reqDuration.WithLabelValues(label).Observe(float64(time.Since(start).Milliseconds()))
+		statusCode := rw.statusCode
+		m.reqTotal.WithLabelValues(label, strconv.FormatInt(int64(statusCode), 10)).Inc()
 	}
 
-	return signedToken, nil
+	return http.HandlerFunc(fn)
 }

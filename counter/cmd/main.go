@@ -53,9 +53,12 @@ func main() {
 	go broker.RunSendConsumer(sendQueue.Name)
 	go broker.RunReadConsumer(readQueue.Name)
 
+	metrics := transport.InitMetrics(initLogger)
+
 	server := transport.NewServer(
 		counterService,
 		broker,
+		metrics,
 	)
 
 	if err := server.Start(); err != nil {
