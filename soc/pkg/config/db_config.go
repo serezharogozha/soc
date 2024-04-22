@@ -24,7 +24,7 @@ func buildDBConfig() (DbConf, error) {
 	dbStrPort := os.Getenv("DB_PORT")
 
 	if len(dbStrPort) == 0 {
-		dbStrPort = "5432"
+		dbStrPort = "5000"
 	}
 
 	dbPort, err := strconv.ParseInt(dbStrPort, 10, 64)

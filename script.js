@@ -4,16 +4,16 @@ import { htmlReport } from "https://raw.githubusercontent.com/benc-uk/k6-reporte
 import { textSummary } from "https://jslib.k6.io/k6-summary/0.0.1/index.js";
 
 export const options = {
-    vus: 1000,
-    duration: '30s'
+    vus: 10,
+    duration: '120s'
 };
 
 export default function () {
     const url = 'http://localhost:8080/user/search';
 
     let data = JSON.stringify({
-        "first_name": "Лев",
-        "last_name": "Абрамов"
+        "first_name": "SSSSS",
+        "last_name": "Фамилия"
     });
 
     let res = http.post(url, data);
